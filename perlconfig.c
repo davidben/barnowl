@@ -399,6 +399,11 @@ CALLER_OWN char *owl_perlconfig_initperl(const char *file, int *Pargc, char ***P
   return(NULL);
 }
 
+void owl_perlconfig_shutdown_perl(void) {
+  perl_destruct(owl_global_get_perlinterp(&g));
+  perl_free(owl_global_get_perlinterp(&g));
+}
+
 /* returns whether or not a function exists */
 int owl_perlconfig_is_function(const char *fn) {
   if (get_cv(fn, FALSE)) return(1);

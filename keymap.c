@@ -25,6 +25,12 @@ void owl_keymap_cleanup(owl_keymap *km)
   owl_ptr_array_free(km->bindings, (GDestroyNotify)owl_keybinding_delete);
 }
 
+void owl_keymap_delete(owl_keymap *km)
+{
+  owl_keymap_cleanup(km);
+  g_free(km);
+}
+
 void owl_keymap_set_parent(owl_keymap *km, const owl_keymap *parent)
 {
   km->parent = parent;
@@ -179,10 +185,16 @@ void owl_keyhandler_init(owl_keyhandler *kh)
   owl_keyhandler_reset(kh);
 }
 
+void owl_keyhandler_cleanup(owl_keyhandler *kh)
+{
+  owl_dict_cleanup(&kh->keymaps, (void(*)(void*))owl_keymap_delete);
+}
+
 /* adds a new keymap */
 void owl_keyhandler_add_keymap(owl_keyhandler *kh, owl_keymap *km)
 {
-  owl_dict_insert_element(&kh->keymaps, km->name, km, NULL);
+  owl_dict_insert_element(&kh->keymaps, km->name, km,
+                          (void(*)(void*))owl_keymap_delete);
 }
 
 owl_keymap *owl_keyhandler_create_and_add_keymap(owl_keyhandler *kh, const char *name, const char *desc, void (*default_fn)(owl_input), void (*prealways_fn)(owl_input), void (*postalways_fn)(owl_input))

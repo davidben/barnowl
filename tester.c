@@ -87,8 +87,8 @@ int main(int argc, char **argv, char **env)
   LEAVE;
 
  out:
-  perl_destruct(owl_global_get_perlinterp(&g));
-  perl_free(owl_global_get_perlinterp(&g));
+  owl_global_cleanup(&g); /* FIXME: shutting down perl in funny order. */
+  owl_perlconfig_shutdown_perl();
   /* probably not necessary, but tear down the screen */
   endwin();
   delscreen(screen);

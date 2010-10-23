@@ -5,6 +5,11 @@ void owl_errqueue_init(owl_errqueue *eq)
   eq->errlist = g_ptr_array_new();
 }
 
+void owl_errqueue_cleanup(owl_errqueue *eq)
+{
+  owl_ptr_array_free(eq->errlist, g_free);
+}
+
 void owl_errqueue_append_err(owl_errqueue *eq, const char *msg)
 {
   g_ptr_array_add(eq->errlist, g_strdup(msg));

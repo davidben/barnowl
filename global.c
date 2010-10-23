@@ -3,6 +3,7 @@
 #include <sys/ioctl.h>
 
 static void _owl_global_init_windows(owl_global *g);
+static void owl_global_delete_filter_ent(void *data);
 
 void owl_global_init(owl_global *g) {
   char *cd;
@@ -100,6 +101,69 @@ void owl_global_init(owl_global *g) {
 
   g->interrupt_count = 0;
   g->interrupt_lock = g_mutex_new();
+}
+
+void owl_global_cleanup(owl_global *g) {
+  while (g->context_stack)
+    owl_global_pop_context(g);
+
+  owl_cmddict_cleanup(&(g->cmds));
+
+  /* owl_message_cleanup_fmtext_cache(); */
+  /* g->timerlist = NULL; */
+
+  /* g->zaldlist = NULL; */
+
+  owl_zbuddylist_cleanup(&(g->zbuddies));
+
+  owl_errqueue_cleanup(&(g->errqueue));
+
+  owl_buddylist_cleanup(&(g->buddylist));
+
+  /* owl_mainwin_cleanup(&(g->mw)); */
+  owl_msgwin_cleanup(&(g->msgwin));
+  /* owl_sepbar_cleanup(g->mainpanel.sepwin); */
+  owl_mainpanel_cleanup(&(g->mainpanel));
+  delwin(g->input_pad);
+  g->input_pad = NULL;
+
+  owl_messagelist_cleanup(&(g->msglist), true);
+
+  owl_history_cleanup(&(g->msghist));
+  owl_history_cleanup(&(g->cmdhist));
+
+  owl_dict_cleanup(&(g->styledict), (void (*)(void*))owl_style_delete);
+  /* owl_fmtext_cleanup_colorpair_mgr(&(g->cpmgr)); */
+  owl_regex_cleanup(&g->search_re);
+
+  /* TODO: clean up pointers in the GQueue */
+  g_queue_free(g->messagequeue);
+  g->messagequeue = NULL;
+
+  owl_ptr_array_free(g->puntlist, (GDestroyNotify)owl_filter_delete);
+
+  owl_dict_cleanup(&(g->filters), owl_global_delete_filter_ent);
+
+  owl_keyhandler_cleanup(&g->kh);
+
+  owl_variable_dict_cleanup(&(g->vars));
+
+  g_mutex_free(g->interrupt_lock);
+  g_free(g->kill_buffer);
+  g_free(g->startupargs);
+  g_free(g->homedir);
+  g_free(g->confdir);
+  g_free(g->startupfile);
+  g_free(g->aim_screenname);
+  g_free(g->aim_screenname_for_filters);
+  g->interrupt_lock = NULL;
+  g->kill_buffer = NULL;
+  g->startupargs = NULL;
+  g->homedir = NULL;
+  g->confdir = NULL;
+  g->startupfile = NULL;
+  g->aim_screenname = NULL;
+  g->aim_screenname_for_filters = NULL;
 }
 
 static void _owl_global_init_windows(owl_global *g)

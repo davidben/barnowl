@@ -616,6 +616,8 @@ int main(int argc, char **argv, char **env)
   /* Shut down everything. */
   owl_zephyr_shutdown();
   owl_signal_shutdown();
+  owl_global_cleanup(&g);
+  owl_perlconfig_shutdown_perl();
   owl_shutdown_curses();
   owl_log_shutdown();
   return 0;

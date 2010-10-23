@@ -5,6 +5,11 @@ void owl_zbuddylist_create(owl_zbuddylist *zb)
   zb->zusers = g_ptr_array_new();
 }
 
+void owl_zbuddylist_cleanup(owl_zbuddylist *zb)
+{
+  owl_ptr_array_free(zb->zusers, g_free);
+}
+
 int owl_zbuddylist_adduser(owl_zbuddylist *zb, const char *name)
 {
   int i;
