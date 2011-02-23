@@ -7,6 +7,7 @@ use Carp;
 use List::Util qw(first);
 
 use BarnOwl::Commands;
+use BarnOwl::Sepbar;
 
 =head1 BarnOwl::Hooks
 
@@ -260,11 +261,7 @@ sub _new_command {
 }
 
 sub _do_sepbar {
-    my $append = BarnOwl::getvar("appendtosepbar");
-    if ($append) {
-        return " $append ";
-    }
-    return "";
+    return BarnOwl::Sepbar::render();
 }
 
 sub contains {
