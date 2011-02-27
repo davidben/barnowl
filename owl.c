@@ -21,17 +21,6 @@
 #include <locale.h>
 #include "owl.h"
 
-
-#if OWL_STDERR_REDIR
-#ifdef HAVE_SYS_IOCTL_H
-#include <sys/ioctl.h>
-#endif
-#ifdef HAVE_SYS_FILIO_H
-#include <sys/filio.h>
-#endif
-int stderr_replace(void);
-#endif
-
 owl_global g;
 
 typedef struct _owl_options {
@@ -432,49 +421,9 @@ void owl_register_signal_handlers(void) {
 
 #if OWL_STDERR_REDIR
 
-/* Replaces stderr with a pipe so that we can read from it. 
- * Returns the fd of the pipe from which stderr can be read. */
-int stderr_replace(void)
+static void stderr_handler(const char *line, void *data)
 {
-  int pipefds[2];
-  if (0 != pipe(pipefds)) {
-    perror("pipe");
-    owl_function_debugmsg("stderr_replace: pipe FAILED\n");
-    return -1;
-  }
-    owl_function_debugmsg("stderr_replace: pipe: %d,%d\n", pipefds[0], pipefds[1]);
-  if (-1 == dup2(pipefds[1], 2 /*stderr*/)) {
-    owl_function_debugmsg("stderr_replace: dup2 FAILED (%s)\n", strerror(errno));
-    perror("dup2");
-    return -1;
-  }
-  return pipefds[0];
-}
-
-/* Sends stderr (read from rfd) messages to the error console */
-void stderr_redirect_handler(const owl_io_dispatch *d, void *data)
-{
-  int navail, bread;
-  char buf[4096];
-  int rfd = d->fd;
-  char *err;
-
-  if (rfd<0) return;
-  if (-1 == ioctl(rfd, FIONREAD, &navail)) {
-    return;
-  }
-  /*owl_function_debugmsg("stderr_redirect: navail = %d\n", navail);*/
-  if (navail <= 0) return;
-  if (navail > sizeof(buf)-1) {
-    navail = sizeof(buf)-1;
-  }
-  bread = read(rfd, buf, navail);
-  if (buf[navail-1] != '\0') {
-    buf[navail] = '\0';
-  }
-
-  err = g_strdup_printf("[stderr]\n%s", buf);
-
+  char *err = g_strdup_printf("[stderr] %s", line);
   owl_function_log_err(err);
   g_free(err);
 }
@@ -525,7 +474,7 @@ int main(int argc, char **argv, char **env)
 #if OWL_STDERR_REDIR
   /* Do this only after we've started curses up... */
   owl_function_debugmsg("startup: doing stderr redirection");
-  owl_select_add_io_dispatch(stderr_replace(), OWL_IO_READ, &stderr_redirect_handler, NULL, NULL);
+  owl_stderr_replace(stderr_handler, NULL);
 #endif
 
   /* create the owl directory, in case it does not exist */
