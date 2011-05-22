@@ -9,6 +9,7 @@ Notes:
 This project's perl/lib/ contains the lib directories from the
 following CPAN modules:
 
+AnyEvent::XMPP
 Net::Jabber
 Net::XMPP
 XML::Stream
@@ -33,6 +34,15 @@ The IRC module requires:
 
 AnyEvent::IRC
 Class::Accessor
+
+The Jabber module requires:
+
+Authen::SASL
+Digest::SHA1
+Net::LibIDN
+Object::Event
+XML::Parser::Expat
+XML::Writer
 
 The WordWrap module requires:
 
