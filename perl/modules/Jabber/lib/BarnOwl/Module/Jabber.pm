@@ -294,7 +294,7 @@ sub register_owl_commands() {
         jaway => \&cmd_jaway,
         {
             summary => "Set Jabber away / presence information",
-            usage   => "jaway [-s online|dnd|...] [<message>]"
+            usage   => "jaway [-s online|dnd|...] [-a <account>] [<message>]"
         }
     );
     BarnOwl::new_command(
