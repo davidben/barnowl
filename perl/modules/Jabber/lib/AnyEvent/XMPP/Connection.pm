@@ -10,6 +10,7 @@ use AnyEvent::XMPP::Extendable;
 use AnyEvent::XMPP::Error;
 use Object::Event;
 use Digest::SHA1 qw/sha1_hex/;
+use Scalar::Util;
 use Encode;
 
 our @ISA = qw/AnyEvent::XMPP::SimpleConnection Object::Event AnyEvent::XMPP::Extendable/;
@@ -205,20 +206,24 @@ sub new {
          @_
       );
 
+   my $self_weak = $self;
+   Scalar::Util::weaken $self_weak;
+
    $self->{parser} = new AnyEvent::XMPP::Parser;
    $self->{writer} = AnyEvent::XMPP::Writer->new (
-      write_cb     => sub { $self->write_data ($_[0]) },
-      send_iq_cb   => sub { $self->event (send_iq_hook => @_); return },
-      send_msg_cb  => sub { $self->event (send_message_hook => @_); return },
-      send_pres_cb => sub { $self->event (send_presence_hook => @_); return },
+      write_cb     => sub { $self_weak->write_data ($_[0]) if defined $self_weak },
+      send_iq_cb   => sub { $self_weak->event (send_iq_hook => @_) if defined $self_weak; return },
+      send_msg_cb  => sub { $self_weak->event (send_message_hook => @_) if defined $self_weak; return },
+      send_pres_cb => sub { $self_weak->event (send_presence_hook => @_) if defined $self_weak; return },
    );
 
    $self->{parser}->set_stanza_cb (sub {
+      return unless defined $self_weak;
       eval {
-         $self->handle_stanza (@_);
+         $self_weak->handle_stanza (@_);
       };
       if ($@) {
-         $self->event (error =>
+         $self_weak->event (error =>
             AnyEvent::XMPP::Error::Exception->new (
                exception => $@, context => 'stanza handling'
             )
@@ -228,29 +233,31 @@ sub new {
    $self->{parser}->set_error_cb (sub {
       my ($ex, $data, $type) = @_;
 
+      return unless defined $self_weak;
       if ($type eq 'xml') {
          my $pe = AnyEvent::XMPP::Error::Parser->new (exception => $_[0], data => $_[1]);
-         $self->event (xml_parser_error => $pe);
-         $self->disconnect ("xml error: $_[0], $_[1]");
+         $self_weak->event (xml_parser_error => $pe);
+         $self_weak->disconnect ("xml error: $_[0], $_[1]");
 
       } else {
          my $pe = AnyEvent::XMPP::Error->new (
             text => "uncaught exception in stanza handling: $ex"
          );
-         $self->event (uncaught_exception_error => $pe);
-         $self->disconnect ($pe->string);
+         $self_weak->event (uncaught_exception_error => $pe);
+         $self_weak->disconnect ($pe->string);
       }
    });
 
    $self->{parser}->set_stream_cb (sub {
-      $self->{stream_id} = $_[0]->attr ('id');
+      return unless defined $self_weak;
+      $self_weak->{stream_id} = $_[0]->attr ('id');
 
       # This is some very bad "hack" for _very_ old jabber
       # servers to work with AnyEvent::XMPP
       if (not defined $_[0]->attr ('version')) {
-         $self->start_old_style_authentication
-            if (not $self->{disable_iq_auth})
-               && (not $self->{disable_old_jabber_authentication})
+         $self_weak->start_old_style_authentication
+            if (not $self_weak->{disable_iq_auth})
+               && (not $self_weak->{disable_old_jabber_authentication})
       }
    });
 
@@ -260,13 +267,14 @@ sub new {
 
    $self->{disconnect_cb} = sub {
       my ($host, $port, $message) = @_;
-      delete $self->{authenticated};
-      delete $self->{ssl_enabled};
-      $self->event (disconnect => $host, $port, $message);
-      delete $self->{disconnect_cb};
-      delete $self->{writer};
-      $self->{parser}->cleanup;
-      delete $self->{parser};
+      return unless defined $self_weak;
+      delete $self_weak->{authenticated};
+      delete $self_weak->{ssl_enabled};
+      $self_weak->event (disconnect => $host, $port, $message);
+      delete $self_weak->{disconnect_cb};
+      delete $self_weak->{writer};
+      $self_weak->{parser}->cleanup;
+      delete $self_weak->{parser};
    };
 
    if ($self->{jid}) {
@@ -304,7 +312,7 @@ sub new {
             AnyEvent::XMPP::Error->new (text => 'tls_error: tls negotiation failed')
          );
       },
-      iq_xml => sub { shift @_; $self->handle_iq (@_) }
+      iq_xml => sub { my $self = shift @_; $self->handle_iq (@_) }
    );
 
    if ($self->{whitespace_ping_interval} > 0) {
@@ -315,6 +323,7 @@ sub new {
             $self->unreg_me;
          },
          disconnect => sub {
+            my ($self) = @_;
             $self->_stop_whitespace_ping;
             $self->unreg_me;
          }
@@ -323,7 +332,8 @@ sub new {
 
    $self->set_exception_cb (sub {
       my ($ex) = @_;
-      $self->event (error =>
+      return unless defined $self_weak;
+      $self_weak->event (error =>
          AnyEvent::XMPP::Error::Exception->new (
             exception => $ex, context => 'event callback'
          )
