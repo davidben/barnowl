@@ -79,16 +79,16 @@ sub new {
    $self->{roster} = AnyEvent::XMPP::IM::Roster->new (connection => $self);
 
    $self->reg_cb (message_xml =>
-      sub { shift @_; $self->handle_message (@_);  });
+      sub { my $self = shift @_; $self->handle_message (@_);  });
    $self->reg_cb (presence_xml =>
-      sub { shift @_; $self->handle_presence (@_); });
+      sub { my $self = shift @_; $self->handle_presence (@_); });
    $self->reg_cb (iq_set_request_xml =>
-      sub { shift @_; $self->handle_iq_set (@_);   });
+      sub { my $self = shift @_; $self->handle_iq_set (@_);   });
    $self->reg_cb (disconnect =>
-      sub { shift @_; $self->handle_disconnect (@_); });
+      sub { my $self = shift @_; $self->handle_disconnect (@_); });
 
    $self->reg_cb (stream_ready => sub {
-      my ($jid) = @_;
+      my ($self, $jid) = @_;
       if ($self->features ()->find_all ([qw/session session/])) {
          $self->send_session_iq;
       } else {
