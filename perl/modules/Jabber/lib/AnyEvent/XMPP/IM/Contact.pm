@@ -97,6 +97,7 @@ sub send_update {
    for my $g (@{$upd{remove_group} || []}) {
       push @{$self->{groups}}, grep { $g ne $_ } $self->groups;
    }
+   $self->{name} = $upd{name};
 
    $self->{connection}->send_iq (
       set => sub {
