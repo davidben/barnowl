@@ -58,7 +58,7 @@ sub init {
 
    my $proxy = sub {
       my ($self, @args) = @_;
-      $self->event (@args);
+      $self->event (error => @args);
    };
 
    $self->{disco}->enable_feature ($self->disco_feature);
