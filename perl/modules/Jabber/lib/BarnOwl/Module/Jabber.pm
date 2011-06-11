@@ -16,32 +16,25 @@ This module implements Jabber support for barnowl.
 use BarnOwl;
 use BarnOwl::Hooks;
 use BarnOwl::Message::Jabber;
-use BarnOwl::Module::Jabber::Connection;
-use BarnOwl::Module::Jabber::ConnectionManager;
+use BarnOwl::Module::Jabber::AccountManager;
 use BarnOwl::Completion::Util qw(complete_flags);
 
+# TODO: Do we still need to specify which implementation here?
 use Authen::SASL qw(Perl);
-use Net::Jabber;
-use Net::Jabber::MUC;
-use Net::DNS;
 use Getopt::Long;
 Getopt::Long::Configure(qw(no_getopt_compat prefix_pattern=-|--));
+
+use AnyEvent;
+use AnyEvent::XMPP::IM::Message;
+use AnyEvent::XMPP::IM::Presence;
+use AnyEvent::XMPP::Namespaces qw(xmpp_ns);
+use AnyEvent::XMPP::Util qw(split_jid join_jid res_jid node_jid
+                            bare_jid cmp_bare_jid is_bare_jid
+                            dump_twig_xml);
 
 use utf8;
 
 our $VERSION = 0.1;
-
-BEGIN {
-    if(eval {require IO::Socket::SSL;}) {
-        if($IO::Socket::SSL::VERSION eq "0.97") {
-            BarnOwl::error("You are using IO::Socket:SSL 0.97, which \n" .
-                           "contains bugs causing it not to work with barnowl's\n" .
-                           "Jabber support. We recommend updating to the latest\n" .
-                           "IO::Socket::SSL from CPAN. \n");
-            die("Not loading Jabber.par\n");
-        }
-    }
-}
 
 no warnings 'redefine';
 
@@ -59,9 +52,9 @@ no warnings 'redefine';
 #
 ################################################################################
 
-our $conn;
-$conn ||= BarnOwl::Module::Jabber::ConnectionManager->new;
-our %vars;
+our $accounts;
+$accounts //= BarnOwl::Module::Jabber::AccountManager->new;
+our $auto_away_timer;
 our %completion_jids;
 
 sub onStart {
@@ -71,7 +64,6 @@ sub onStart {
         register_filters();
         $BarnOwl::Hooks::getBuddyList->add("BarnOwl::Module::Jabber::onGetBuddyList");
         $BarnOwl::Hooks::getQuickstart->add("BarnOwl::Module::Jabber::onGetQuickstart");
-        $vars{show} = '';
 	BarnOwl::new_variable_bool("jabber:show_offline_buddies",
 				   { default => 1,
 				     summary => 'Show offline or pending buddies.'});
@@ -93,12 +85,6 @@ sub onStart {
 				  { default => 1,
 				    summary => 'Auto-reconnect when disconnected from servers.'
 				});
-        # Force these. Reload can screw them up.
-        # Taken from Net::Jabber::Protocol.
-        $Net::XMPP::Protocol::NEWOBJECT{'iq'}       = "Net::Jabber::IQ";
-        $Net::XMPP::Protocol::NEWOBJECT{'message'}  = "Net::Jabber::Message";
-        $Net::XMPP::Protocol::NEWOBJECT{'presence'} = "Net::Jabber::Presence";
-        $Net::XMPP::Protocol::NEWOBJECT{'jid'}      = "Net::Jabber::JID";
     } else {
         # Our owl doesn't support queue_message. Unfortunately, this
         # means it probably *also* doesn't support BarnOwl::error. So just
@@ -108,93 +94,86 @@ sub onStart {
 
 $BarnOwl::Hooks::startup->add("BarnOwl::Module::Jabber::onStart");
 
-sub do_keep_alive_and_auto_away {
-    if ( !$conn->connected() ) {
+sub ensure_auto_away_timer {
+    return if defined($auto_away_timer);
+    $auto_away_timer = AnyEvent->timer(after => 5,
+                                       interval => 5,
+                                       cb => \&do_auto_away);
+}
+
+sub do_auto_away {
+    if ( !$accounts->connected() ) {
         # We don't need this timer any more.
-        if (defined $vars{keepAliveTimer}) {
-            $vars{keepAliveTimer}->stop;
-        }
-        delete $vars{keepAliveTimer};
+        undef $auto_away_timer;
         return;
     }
 
-    $vars{status_changed} = 0;
+    # TODO: Instead of polling, provide the necessary hooks for perl
+    # to (sanely) track idle time. AIM probably could use this too.
+
     my $auto_away = BarnOwl::getvar('jabber:auto_away_timeout');
     my $auto_xa = BarnOwl::getvar('jabber:auto_xa_timeout');
     my $idletime = BarnOwl::getidletime();
-    if ($auto_xa != 0 && $idletime >= (60 * $auto_xa) && ($vars{show} eq 'away' || $vars{show} eq '' )) {
-        $vars{show} = 'xa';
-        $vars{status} = 'Auto extended-away after '.$auto_xa.' minute'.($auto_xa == 1 ? '' : 's').' idle.';
-        $vars{status_changed} = 1;
-    } elsif ($auto_away != 0 && $idletime >= (60 * $auto_away) && $vars{show} eq '') {
-        $vars{show} = 'away';
-        $vars{status} = 'Auto away after '.$auto_away.' minute'.($auto_away == 1 ? '' : 's').' idle.';
-        $vars{status_changed} = 1;
-    } elsif ($idletime <= $vars{idletime} && $vars{show} ne '') {
-        $vars{show} = '';
-        $vars{status} = '';
-        $vars{status_changed} = 1;
-    }
-    $vars{idletime} = $idletime;
 
-    foreach my $jid ( $conn->getJIDs() ) {
-        next if $conn->jidActive($jid);
-        $conn->tryReconnect($jid);
+    my $auto_status = '';
+    if ($auto_xa != 0 && $idletime >= (60 * $auto_xa)) {
+        $auto_status = 'xa';
+    } elsif ($auto_away != 0 && $idletime >= (60 * $auto_away)) {
+        $auto_status = 'away';
     }
 
-    foreach my $jid ( $conn->getJIDs() ) {
-        next unless $conn->jidActive($jid);
-
-        my $client = $conn->getConnectionFromJID($jid);
-        unless($client) {
-            $conn->removeConnection($jid);
-            BarnOwl::error("Connection for $jid undefined -- error in reload?");
-        }
-        my $status = $client->Process(0); # keep-alive
-        if ( !defined($status) ) {
-            $conn->scheduleReconnect($jid);
-        }
-        if ($::shutdown) {
-            do_logout($jid);
-            next;
-        }
-
-        if ($vars{status_changed}) {
-            my $p = new Net::Jabber::Presence;
-            $p->SetShow($vars{show}) if $vars{show};
-            $p->SetStatus($vars{status}) if $vars{status};
-            $client->Send($p);
-        }
+    foreach my $acc ($accounts->accounts) {
+        $acc->auto_away($auto_status);
     }
 }
+
+#     foreach my $jid ( $conn->getJIDs() ) {
+#         next unless $conn->jidActive($jid);
+#
+#         my $client = $conn->getConnectionFromJID($jid);
+#         unless($client) {
+#             $conn->removeConnection($jid);
+#             BarnOwl::error("Connection for $jid undefined -- error in reload?");
+#         }
+#         my $status = $client->Process(0); # keep-alive
+#         if ( !defined($status) ) {
+#             $conn->scheduleReconnect($jid);
+#         }
+#         if ($::shutdown) {
+#             do_logout($jid);
+#             next;
+#         }
+#
+#         if ($vars{status_changed}) {
+#            my $p = new Net::Jabber::Presence;
+#            $p->SetShow($vars{show}) if $vars{show};
+#            $p->SetStatus($vars{status}) if $vars{status};
+#            $client->Send($p);
+#         }
+#     }
 
 our $showOffline = 0;
 
 sub blist_listBuddy {
-    my $roster = shift;
     my $buddy  = shift;
     my $blistStr .= "    ";
-    my %jq  = $roster->query($buddy);
-    my $res = $roster->resource($buddy);
 
-    my $name = $jq{name} || $buddy->GetUserID();
+    my $name = $buddy->name // node_jid($buddy->jid);
 
-    $blistStr .= sprintf '%-15s %s', $name, $buddy->GetJID();
-    $completion_jids{$name} = 1;
-    $completion_jids{$buddy->GetJID()} = 1;
+    $blistStr .= sprintf '%-15s %s', $name, $buddy->jid;
 
-    if ($res) {
-        my %rq = $roster->resourceQuery( $buddy, $res );
-        $blistStr .= " [" . ( $rq{show} ? $rq{show} : 'online' ) . "]";
-        $blistStr .= " " . $rq{status} if $rq{status};
+    my $presence = $buddy->get_priority_presence();
+    if (defined $presence) {
+        $blistStr .= " [" . ( $presence->show ? $presence->show : 'online' ) . "]";
+        $blistStr .= " " . $presence->status if defined $presence->status;
         $blistStr = BarnOwl::Style::boldify($blistStr) if $showOffline;
     }
     else {
         return '' unless $showOffline;
-	if ($jq{ask}) {
+	if ($buddy->subscription_pending) {
             $blistStr .= " [pending]";
 	}
-	elsif ($jq{subscription} eq 'none' || $jq{subscription} eq 'from') {
+	elsif ($buddy->subscription eq 'none' || $buddy->subscription eq 'from') {
 	    $blistStr .= " [not subscribed]";
 	}
 	else {
@@ -210,31 +189,40 @@ sub blistSort {
 }
 
 sub getSingleBuddyList {
-    my $jid = shift;
-    $jid = resolveConnectedJID($jid);
-    return "" unless $jid;
+    my $acc = shift;
     my $blist = "";
-    my $roster = $conn->getRosterFromJID($jid);
+    my $roster = $acc->get_roster();
     if ($roster) {
+        my $jid = $acc->jid;
         $blist .= BarnOwl::Style::boldify("Jabber roster for $jid\n");
 
+        # Process the roster into groups
+        my %groups;
+        my @ungrouped;
+        for my $contact ($roster->get_contacts()) {
+            if ($contact->groups()) {
+                for my $group ($contact->groups()) {
+                    push @{$groups{$group}}, $contact;
+                }
+            } else {
+                push @ungrouped, $contact;
+            }
+        }
+
+        # Show the grouped entries
         my @gTexts = ();
-        foreach my $group ( $roster->groups() ) {
-            my @buddies = $roster->jids( 'group', $group );
+        foreach my $group (sort blistSort (keys %groups)) {
             my @bTexts = ();
-            foreach my $buddy ( @buddies ) {
-                push(@bTexts, blist_listBuddy( $roster, $buddy ));
+            foreach my $buddy ( @{$groups{$group}} ) {
+                push(@bTexts, blist_listBuddy($buddy));
             }
             push(@gTexts, "  Group: $group\n".join('',sort blistSort @bTexts));
         }
-        # Sort groups before adding ungrouped entries.
-        @gTexts = sort blistSort @gTexts;
 
-        my @unsorted = $roster->jids('nogroup');
-        if (@unsorted) {
+        if (@ungrouped) {
             my @bTexts = ();
-            foreach my $buddy (@unsorted) {
-                push(@bTexts, blist_listBuddy( $roster, $buddy ));
+            foreach my $buddy (@ungrouped) {
+                push(@bTexts, blist_listBuddy($buddy));
             }
             push(@gTexts, "  [unsorted]\n".join('',sort blistSort @bTexts));
         }
@@ -246,8 +234,8 @@ sub getSingleBuddyList {
 sub onGetBuddyList {
     $showOffline = BarnOwl::getvar('jabber:show_offline_buddies') eq 'on';
     my $blist = "";
-    foreach my $jid ($conn->getJIDs()) {
-        $blist .= getSingleBuddyList($jid);
+    foreach my $acc ($accounts->accounts()) {
+        $blist .= getSingleBuddyList($acc);
     }
     return $blist;
 }
@@ -366,139 +354,90 @@ sub register_filters {
 }
 
 sub cmd_login {
-    my $cmd = shift;
-    my $jidStr = shift;
-    my $jid = new Net::Jabber::JID;
-    $jid->SetJID($jidStr);
-    my $password = '';
-    $password = shift if @_;
+    my ($cmd, $jid, $password) = @_;
 
-    my $uid           = $jid->GetUserID();
-    my $componentname = $jid->GetServer();
-    my $resource      = $jid->GetResource();
-
-    if ($resource eq '') {
-        my $cjidStr = $conn->baseJIDExists($jidStr);
-        if ($cjidStr) {
-            die("Already logged in as $cjidStr.\n");
-        }
-    }
-
-    $resource ||= 'barnowl';
-    $jid->SetResource($resource);
-    $jidStr = $jid->GetJID('full');
+    my ($uid, $componentname, $resource) = split_jid($jid);
 
     if ( !$uid || !$componentname ) {
         die("usage: $cmd JID\n");
     }
 
-    if ( $conn->jidActive($jidStr) ) {
-        die("Already logged in as $jidStr.\n");
-    } elsif ($conn->jidExists($jidStr)) {
-        return $conn->tryReconnect($jidStr, 1);
+    $resource ||= 'barnowl';
+    $jid = join_jid($uid, $componentname, $resource);
+
+    if (defined($accounts->get_account($jid))) {
+	die("Already logged in as " . bare_jid($jid) . "\n");
     }
 
-    my ( $server, $port ) = getServerFromJID($jid);
+    if (defined($password)) {
+	return do_login($jid, $password);
+    }
 
-    $vars{jlogin_jid} = $jidStr;
-    $vars{jlogin_connhash} = {
-        hostname      => $server,
-        tls           => 1,
-        port          => $port,
-        componentname => $componentname
-    };
-    $vars{jlogin_authhash} =
-      { username => $uid,
-        resource => $resource,
-    };
-
-    return do_login($password);
+    BarnOwl::start_password("Password for $jid: ", sub { do_login($jid, $_[0]); });
 }
 
 sub do_login {
-    $vars{jlogin_password} = shift;
-    $vars{jlogin_authhash}->{password} = sub { return $vars{jlogin_password} || '' };
-    my $jidStr = $vars{jlogin_jid};
-    if ( !$jidStr && $vars{jlogin_havepass}) {
-        BarnOwl::error("Got password but have no JID!");
-    }
-    else
-    {
-        my $client = $conn->addConnection($jidStr);
+    my ($jid, $password) = @_;
 
-        #XXX Todo: Add more callbacks.
-        # * MUC presence handlers
-        # We use the anonymous subrefs in order to have the correct behavior
-        # when we reload
-        $client->SetMessageCallBacks(
-            chat      => sub { BarnOwl::Module::Jabber::process_incoming_chat_message(@_) },
-            error     => sub { BarnOwl::Module::Jabber::process_incoming_error_message(@_) },
-            groupchat => sub { BarnOwl::Module::Jabber::process_incoming_groupchat_message(@_) },
-            headline  => sub { BarnOwl::Module::Jabber::process_incoming_headline_message(@_) },
-            normal    => sub { BarnOwl::Module::Jabber::process_incoming_normal_message(@_) }
+    # Timeout borrowed from Net::Jabber-based implementation.
+    # TODO: Make connect_timeout a variable.
+    # TODO: Expose $host and $port parameters in UI, in case SRV
+    # records are sad, or certificate doesn't match.
+    my $acc = $accounts->add_account($jid, $password,
+                                     {connect_timeout => 10});
+    if (!$acc) {
+	# This shouldn't happen because we also check earlier.
+	die("Already logged in as " . bare_jid($jid) . "\n");
+    }
+    $acc->reg_cb(
+	connected => \&on_connected,
+	connect_error => \&on_connect_error,
+	disconnect => \&on_disconnect,
+
+	message => \&on_message,
+	message_error => \&on_message_error,
+
+        presence_xml => \&on_presence_xml,
+	presence_error => \&on_presence_error,
+
+	contact_request_subscribe => \&on_contact_request_subscribe,
+	contact_did_unsubscribe => \&on_contact_did_unsubscribe,
+	contact_subscribed => \&on_contact_subscribed,
+	contact_unsubscribed => \&on_contact_unsubscribed,
+
+        roster_update => \&on_roster_update,
+
+        debug_send => \&on_debug_send,
+        debug_recv => \&on_debug_recv,
+
+        muc_message => \&on_muc_message,
+        muc_subject_change => \&on_muc_subject_change,
+        muc_error => \&on_muc_error,
         );
-        $client->SetPresenceCallBacks(
-            available    => sub { BarnOwl::Module::Jabber::process_presence_available(@_) },
-            unavailable  => sub { BarnOwl::Module::Jabber::process_presence_available(@_) },
-            subscribe    => sub { BarnOwl::Module::Jabber::process_presence_subscribe(@_) },
-            subscribed   => sub { BarnOwl::Module::Jabber::process_presence_subscribed(@_) },
-            unsubscribe  => sub { BarnOwl::Module::Jabber::process_presence_unsubscribe(@_) },
-            unsubscribed => sub { BarnOwl::Module::Jabber::process_presence_unsubscribed(@_) },
-            error        => sub { BarnOwl::Module::Jabber::process_presence_error(@_) });
+    $acc->connect;
 
-        my $status = $client->Connect( %{ $vars{jlogin_connhash} } );
-        if ( !$status ) {
-            $conn->removeConnection($jidStr);
-            BarnOwl::error("We failed to connect.");
-        } else {
-            my @result = $client->AuthSend( %{ $vars{jlogin_authhash} } );
+    ensure_auto_away_timer();
 
-            if ( !@result || $result[0] ne 'ok' ) {
-                if ( !$vars{jlogin_havepass} && ( !@result || $result[0] eq '401' || $result[0] eq 'error') ) {
-                    $vars{jlogin_havepass} = 1;
-                    $conn->removeConnection($jidStr);
-                    BarnOwl::start_password("Password for $jidStr: ", \&do_login );
-                    return "";
-                }
-                $conn->removeConnection($jidStr);
-                BarnOwl::error( "Error in connect: " . join( " ", @result ) );
-            } else {
-                $conn->setAuth(
-                    $jidStr,
-                    {   %{ $vars{jlogin_authhash} },
-                        password => $vars{jlogin_password}
-                    }
-                );
-                $client->onConnect($conn, $jidStr);
-            }
-        }
-    }
-    delete $vars{jlogin_jid};
-    $vars{jlogin_password} =~ tr/\0-\377/x/ if $vars{jlogin_password};
-    delete $vars{jlogin_password};
-    delete $vars{jlogin_havepass};
-    delete $vars{jlogin_connhash};
-    delete $vars{jlogin_authhash};
-
-    return "";
+    return;
 }
 
 sub do_logout {
-    my $jid = shift;
-    my $disconnected = $conn->removeConnection($jid);
+    my $acc = shift;
+    my $jid = $acc->jid;
+    my $disconnected = $accounts->remove_account($acc);
     queue_admin_msg("Jabber disconnected ($jid).") if $disconnected;
 }
 
 sub cmd_logout {
-    return "You are not logged into Jabber." unless ($conn->connected() > 0);
+    return "You are not logged into Jabber." unless $accounts->connected();
     # Logged into multiple accounts
-    if ( $conn->connected() > 1 ) {
-        # Logged into multiple accounts, no accout specified.
+    if ( $accounts->connected() > 1 ) {
+        # Logged into multiple accounts, no account specified.
         if ( !$_[1] ) {
             my $errStr =
               "You are logged into multiple accounts. Please specify an account to log out of.\n";
-            foreach my $jid ( $conn->getJIDs() ) {
-                $errStr .= "\t$jid\n";
+            foreach my $acc ($accounts->accounts()) {
+                $errStr .= "\t" . $acc->jid . "\n";
             }
             queue_admin_msg($errStr);
         }
@@ -506,41 +445,40 @@ sub cmd_logout {
         else {
             if ( $_[1] eq '-A' )    #All accounts.
             {
-                foreach my $jid ( $conn->getJIDs() ) {
-                    do_logout($jid);
+		foreach my $acc ($accounts->accounts()) {
+                    do_logout($acc);
                 }
             }
             else                    #One account.
             {
-                my $jid = resolveConnectedJID( $_[1] );
-                do_logout($jid) if ( $jid ne '' );
+                my $acc = $accounts->get_account($_[1]);
+                do_logout($acc) if defined($acc);
             }
         }
     }
     else                            # Only one account logged in.
     {
-        do_logout( ( $conn->getJIDs() )[0] );
+        do_logout(($accounts->accounts())[0]);
     }
     return "";
 }
 
 sub cmd_jlist {
-    if ( !( scalar $conn->getJIDs() ) ) {
+    if (!$accounts->connected) {
         die("You are not logged in to Jabber.\n");
     }
     BarnOwl::popless_ztext( onGetBuddyList() );
 }
 
 sub cmd_jwrite {
-    if ( !$conn->connected() ) {
+    if ( !$accounts->connected() ) {
         die("You are not logged in to Jabber.\n");
     }
 
-    my $jwrite_to      = "";
-    my $jwrite_from    = "";
-    my $jwrite_sid     = "";
-    my $jwrite_thread  = "";
-    my $jwrite_subject = "";
+    my $jwrite_to;
+    my $jwrite_from;
+    my $jwrite_thread;
+    my $jwrite_subject;
     my $jwrite_body;
     my ($to, $from);
     my $jwrite_type    = "chat";
@@ -553,10 +491,8 @@ sub cmd_jwrite {
         'thread=s'  => \$jwrite_thread,
         'subject=s' => \$jwrite_subject,
         'account=s' => \$from,
-        'id=s'      => \$jwrite_sid,
         'message=s' => \$jwrite_body,
     ) or die("Usage: jwrite <jid> [-t <thread>] [-s <subject>] [-a <account>]\n");
-    $jwrite_type = 'groupchat' if $gc;
 
     if ( scalar @ARGV != 1 ) {
         die("Usage: jwrite <jid> [-t <thread>] [-s <subject>] [-a <account>]\n");
@@ -566,6 +502,7 @@ sub cmd_jwrite {
     }
 
     my @candidates = guess_jwrite($from, $to);
+    # TODO: only connected accounts or something?
 
     unless(scalar @candidates) {
         die("Unable to resolve JID $to\n");
@@ -581,20 +518,20 @@ sub cmd_jwrite {
         }
     }
 
+    my $acc;
+    ($acc, $jwrite_to, $jwrite_type) = @{$candidates[0]};
+    $jwrite_from = $acc->jid;
 
-    ($jwrite_from, $jwrite_to, $jwrite_type) = @{$candidates[0]};
-
-    $vars{jwrite} = {
+    my $jwrite_data = {
         to      => $jwrite_to,
         from    => $jwrite_from,
-        sid     => $jwrite_sid,
         subject => $jwrite_subject,
         thread  => $jwrite_thread,
         type    => $jwrite_type
     };
 
     if (defined($jwrite_body)) {
-        process_owl_jwrite($jwrite_body);
+        process_owl_jwrite($jwrite_data, $jwrite_body);
         return;
     }
 
@@ -612,11 +549,12 @@ sub cmd_jwrite {
     push @cmd, '-t', $jwrite_thread if $jwrite_thread;
     push @cmd, '-s', $jwrite_subject if $jwrite_subject;
 
-    BarnOwl::start_edit_win(BarnOwl::quote(@cmd), \&process_owl_jwrite);
+    BarnOwl::start_edit_win(BarnOwl::quote(@cmd),
+			    sub { process_owl_jwrite($jwrite_data, $_[0]); });
 }
 
 sub cmd_jmuc {
-    die "You are not logged in to Jabber" unless $conn->connected();
+    die "You are not logged in to Jabber" unless $accounts->connected();
     my $ocmd = shift;
     my $cmd  = shift;
     if ( !$cmd ) {
@@ -650,20 +588,17 @@ sub cmd_jmuc {
         my $getopt = Getopt::Long::Parser->new;
         $getopt->configure('pass_through', 'no_getopt_compat');
         $getopt->getoptions( 'account=s' => \$jid );
-        $jid ||= defaultJID();
-        if ($jid) {
-            $jid = resolveConnectedJID($jid);
-            return unless $jid;
-        }
-        else {
-            die("You must specify an account with -a <jid>\n");
-        }
-        return $func->( $jid, $muc, @ARGV );
+        # FIXME: jmuc presence -a doesn't work with multiple accounts
+        # here. Also, we've changed default JID logic (probably for
+        # the better).
+        my $acc = resolveConnectedJID($jid);
+        die $acc->jid . " is not connected" unless $acc->is_session_ready;
+        return $func->( $acc, $muc, @ARGV );
     }
 }
 
 sub jmuc_join {
-    my ( $jid, $muc, @args ) = @_;
+    my ( $acc, $muc, @args ) = @_;
     local @ARGV = @args;
     my $password;
     GetOptions( 'password=s' => \$password );
@@ -673,34 +608,37 @@ sub jmuc_join {
 
     die("Error: Must specify a fully-qualified MUC name (e.g. barnowl\@conference.mit.edu)\n")
         unless $muc =~ /@/;
-    $muc = Net::Jabber::JID->new($muc);
-    $jid = Net::Jabber::JID->new($jid);
-    $muc->SetResource($jid->GetJID('full')) unless length $muc->GetResource();
 
-    $conn->getConnectionFromJID($jid)->MUCJoin(JID      => $muc,
-                                               Password => $password,
-                                               History  => {
-                                                   MaxChars => 0
-                                                  });
-    $completion_jids{$muc->GetJID('base')} = 1;
+    my $room = bare_jid($muc);
+    my $nick = res_jid($muc) // $acc->jid; # TODO: default to bare JID instead?
+
+    $acc->muc->join_room($acc->connection, $room, $nick,
+                         history => { chars => 0 },
+# FIXME: Provide some user feedback before requiring they manually configure.
+# Something like "Created new room 'blah'. Accept default configuration?"
+#                         create_instant => 0,
+                         password => $password);
+    $completion_jids{$room} = 1;
     return;
 }
 
 sub jmuc_part {
-    my ( $jid, $muc, @args ) = @_;
+    my ( $acc, $muc, @args ) = @_;
 
     $muc = shift @args if scalar @args;
     die("Usage: jmuc part [<muc>] [-a <account>]\n") unless $muc;
 
-    if($conn->getConnectionFromJID($jid)->MUCLeave(JID => $muc)) {
-        queue_admin_msg("$jid has left $muc.");
+    my $room = $acc->muc->get_room($acc->connection, $muc);
+    if (defined($room)) {
+        my $jid = $acc->jid;
+        $room->send_part(undef, sub { queue_admin_msg("$jid has left $muc."); });
     } else {
         die("Error: Not joined to $muc\n");
     }
 }
 
 sub jmuc_invite {
-    my ( $jid, $muc, @args ) = @_;
+    my ( $acc, $muc, @args ) = @_;
 
     my $invite_jid = shift @args;
     $muc = shift @args if scalar @args;
@@ -708,49 +646,72 @@ sub jmuc_invite {
     die("Usage: jmuc invite <jid> [<muc>] [-a <account>]\n")
       unless $muc && $invite_jid;
 
-    my $message = Net::Jabber::Message->new();
-    $message->SetTo($muc);
-    my $x = $message->NewChild('http://jabber.org/protocol/muc#user');
-    $x->AddInvite();
-    $x->GetInvite()->SetTo($invite_jid);
-    $conn->getConnectionFromJID($jid)->Send($message);
-    queue_admin_msg("$jid has invited $invite_jid to $muc.");
+    my $room = $acc->muc->get_room($acc->connection, $muc);
+    if (defined($room)) {
+        my $msg = AnyEvent::XMPP::IM::Message->new(
+            connection => $acc->connection,
+            to => $room->jid,
+        );
+        $msg->append_creation(sub {
+            my ($w) = @_;
+            $w->addPrefix(xmpp_ns('muc_user'), '');
+            $w->startTag([xmpp_ns('muc_user'), 'x']);
+              $w->startTag([xmpp_ns('muc_user'), 'invite'],
+                           to => $invite_jid);
+                # TODO: Allow adding a reason?
+              $w->endTag();
+            $w->endTag();
+        });
+        $msg->send();
+        queue_admin_msg($acc->jid . " has invited $invite_jid to $muc.");
+    } else {
+        die("Error: Not joined to $muc\n");
+    }
 }
 
 sub jmuc_configure {
-    my ( $jid, $muc, @args ) = @_;
+    my ( $acc, $muc, @args ) = @_;
     $muc = shift @args if scalar @args;
     die("Usage: jmuc configure [<muc>]\n") unless $muc;
-    my $iq = Net::Jabber::IQ->new();
-    $iq->SetTo($muc);
-    $iq->SetType('set');
-    my $query = $iq->NewQuery("http://jabber.org/protocol/muc#owner");
-    my $x     = $query->NewChild("jabber:x:data");
-    $x->SetType('submit');
 
-    $conn->getConnectionFromJID($jid)->Send($iq);
-    queue_admin_msg("Accepted default instant configuration for $muc");
+    my $room = $acc->muc->get_room($acc->connection, $muc);
+    unless (defined($room)) {
+        my $jid = $acc->jid;
+        die "Account $jid is not joined to $muc\n";
+    }
+    $room->make_instant(sub {
+        my ($self, $err) = @_;
+        if (defined($self)) {
+            queue_admin_msg("Accepted default instant configuration for $muc");
+        } else {
+            queue_admin_msg("Failed to configure $muc: " . $err->string);
+        }
+    });
 }
 
 sub jmuc_presence_single {
-    my $m = shift;
-    my @jids = $m->Presence();
+    my $room = shift;
+    my @users = $room->get_users();
 
-    my $presence = "JIDs present in " . $m->BaseJID;
-    $completion_jids{$m->BaseJID} = 1;
-    if($m->Anonymous) {
+    my $presence = "JIDs present in " . $room->jid;
+    $completion_jids{$room->jid} = 1;
+    unless (@users) {
+        # Net::Jabber's logic for anonymous MUCs was merely if they
+        # had sent presence information yet. It's possible we can do
+        # better and do a disco query for muc_nonanonymous.
         $presence .= " [anonymous MUC]";
     }
     $presence .= "\n\t";
-    $presence .= join("\n\t", map {pp_jid($m, $_);} @jids) . "\n";
+    $presence .= join("\n\t", map {pp_muc_user($room, $_);} @users) . "\n";
     return $presence;
 }
 
-sub pp_jid {
-    my ($m, $jid) = @_;
-    my $nick = $jid->GetResource;
-    my $full = $m->GetFullJID($jid);
-    if($full && $full ne $nick) {
+sub pp_muc_user {
+    my ($room, $user) = @_;
+    
+    my $nick = $user->nick;
+    my $full = $user->real_jid;
+    if (defined($full) && $full ne $nick) {
         return "$nick ($full)";
     } else {
         return "$nick";
@@ -758,33 +719,33 @@ sub pp_jid {
 }
 
 sub jmuc_presence {
-    my ( $jid, $muc, @args ) = @_;
+    my ( $acc, $muc, @args ) = @_;
 
     $muc = shift @args if scalar @args;
     die("Usage: jmuc presence [<muc>]\n") unless $muc;
 
     if ($muc eq '-a') {
         my $str = "";
-        foreach my $jid ($conn->getJIDs()) {
+        foreach my $acc ($accounts->accounts) {
+            my $jid = $acc->jid;
             $str .= BarnOwl::Style::boldify("Conferences for $jid:\n");
-            my $connection = $conn->getConnectionFromJID($jid);
-            foreach my $muc ($connection->MUCs) {
-                $str .= jmuc_presence_single($muc)."\n";
+            foreach my $room ($acc->muc->get_rooms($acc->connection)) {
+                $str .= jmuc_presence_single($room)."\n";
             }
         }
         BarnOwl::popless_ztext($str);
     }
     else {
-        my $m = $conn->getConnectionFromJID($jid)->FindMUC(jid => $muc);
-        die("No such muc: $muc\n") unless $m;
-        BarnOwl::popless_ztext(jmuc_presence_single($m));
+        my $room = $acc->muc->get_room($acc->connection, $muc);
+        die("No such muc: $muc\n") unless defined($room);
+        BarnOwl::popless_ztext(jmuc_presence_single($room));
     }
 }
 
 
 #XXX TODO: Consider merging this with jmuc and selecting off the first two args.
 sub cmd_jroster {
-    die "You are not logged in to Jabber" unless $conn->connected();
+    die "You are not logged in to Jabber" unless $accounts->connected();
     my $ocmd = shift;
     my $cmd  = shift;
     if ( !$cmd ) {
@@ -820,15 +781,11 @@ sub cmd_jroster {
             'purgegroups' => \$purgeGroups,
             'name=s' => \$name
         );
-        $jid ||= defaultJID();
-        if ($jid) {
-            $jid = resolveConnectedJID($jid);
-            return unless $jid;
-        }
-        else {
-            die("You must specify an account with -a <jid>\n");
-        }
-        return $func->( $jid, $name, \@groups, $purgeGroups,  @ARGV );
+        my $acc = resolveConnectedJID($jid);
+        die $acc->jid . " is not connected" unless $acc->is_session_ready;
+	# TODO: deduplicate groups? RFC suggests to compare as in
+	# resources. Alternatively, at least report the error.
+        return $func->( $acc, $name, \@groups, $purgeGroups,  @ARGV );
     }
 }
 
@@ -837,165 +794,153 @@ sub cmd_jaway {
     local @ARGV = @_;
     my $getopt = Getopt::Long::Parser->new;
     my ($jid, $show);
-    my $p = new Net::Jabber::Presence;
 
     $getopt->configure('pass_through', 'no_getopt_compat');
     $getopt->getoptions(
         'account=s' => \$jid,
         'show=s'    => \$show
     );
-    $jid ||= defaultJID();
-    if ($jid) {
-        $jid = resolveConnectedJID($jid);
-        return unless $jid;
-    }
-    else {
-        die("You must specify an account with -a <jid>\n");
+    my $acc = resolveConnectedJID($jid);
+
+    my %valid = (away => 1, chat => 1, dnd => 1, xa => 1, online => 1);
+    unless (!defined($show) || $valid{$show}) {
+        die "Valid values for show are online, chat, dnd, away, xa\n";
     }
 
-    $p->SetShow($show eq "online" ? "" : $show) if $show;
-    $p->SetStatus(join(' ', @ARGV)) if @ARGV;
-    $conn->getConnectionFromJID($jid)->Send($p);
+    undef $show if $show eq 'online';
+    $acc->set_user_presence($show, @ARGV ? join(' ', @ARGV) : undef);
+    return;
 }
 
 
 sub jroster_sub {
-    my $jid = shift;
+    my $acc = shift;
     my $name = shift;
     my @groups = @{ shift() };
     my $purgeGroups = shift;
-    my $baseJID = baseJID($jid);
+    my $baseJID = bare_jid($acc->jid);
 
-    my $roster = $conn->getRosterFromJID($jid);
+    my $roster = $acc->get_roster;
 
     # Adding lots of users with the same name is a bad idea.
     $name = "" unless (1 == scalar(@ARGV));
 
-    my $p = new Net::Jabber::Presence;
-    $p->SetType('subscribe');
-
     foreach my $to (@ARGV) {
-        jroster_add($jid, $name, \@groups, $purgeGroups, ($to)) unless ($roster->exists($to));
+        # FIXME: This logic is from the original, but it's pretty
+        # clearly bogus. It means your groups are ignored unless the
+        # contact is new.
+        my $contact = $roster->get_contact($to);
+        jroster_add($acc, $name, \@groups, $purgeGroups, ($to)) unless defined($contact) && $contact->is_on_roster;
 
-        $p->SetTo($to);
-        $conn->getConnectionFromJID($jid)->Send($p);
+        # For simplicity, send this directly instead of waiting for
+        # the jroster callback to give us back a Contact object. RFC
+        # 6121 explicitly allows the client to send the roster set and
+        # presence request in either order.
+        $acc->connection->send_presence('subscribe', undef, to => $to);
         queue_admin_msg("You ($baseJID) have requested a subscription to ($to)'s presence.");
     }
 }
 
 sub jroster_unsub {
-    my $jid = shift;
+    my $acc = shift;
     my $name = shift;
     my @groups = @{ shift() };
     my $purgeGroups = shift;
-    my $baseJID = baseJID($jid);
+    my $baseJID = bare_jid($acc->jid);
 
-    my $p = new Net::Jabber::Presence;
-    $p->SetType('unsubscribe');
     foreach my $to (@ARGV) {
-        $p->SetTo($to);
-        $conn->getConnectionFromJID($jid)->Send($p);
+        $acc->connection->send_presence('unsubscribe', undef, to => $to);
         queue_admin_msg("You ($baseJID) have unsubscribed from ($to)'s presence.");
     }
 }
 
 sub jroster_add {
-    my $jid = shift;
+    my $acc = shift;
     my $name = shift;
     my @groups = @{ shift() };
     my $purgeGroups = shift;
-    my $baseJID = baseJID($jid);
+    my $baseJID = bare_jid($acc->jid);
 
-    my $roster = $conn->getRosterFromJID($jid);
+    my $roster = $acc->get_roster();
 
     # Adding lots of users with the same name is a bad idea.
-    $name = "" unless (1 == scalar(@ARGV));
-
-    $completion_jids{$baseJID} = 1;
-    $completion_jids{$name} = 1 if $name;
+    undef $name unless (1 == scalar(@ARGV));
 
     foreach my $to (@ARGV) {
-        my %jq  = $roster->query($to);
-        my $iq = new Net::Jabber::IQ;
-        $iq->SetType('set');
-        my $item = new XML::Stream::Node('item');
-        $iq->NewChild('jabber:iq:roster')->AddChild($item);
-
-        my %allGroups = ();
-
-        foreach my $g (@groups) {
-            $allGroups{$g} = $g;
-        }
-
+        my %allGroups;
+        @allGroups{@groups} = 1;
         unless ($purgeGroups) {
-            foreach my $g (@{$jq{groups}}) {
-                $allGroups{$g} = $g;
+            # Pull in existing groups.
+            #
+            # FIXME: Adding groups is asynchronous. Should take
+            # pending requests into account here.
+            my $contact = $roster->get_contact($to);
+            if (defined($contact)) {
+                @allGroups{$contact->groups} = 1;
             }
         }
-
-        foreach my $g (keys %allGroups) {
-            $item->add_child('group')->add_cdata($g);
-        }
-
-        $item->put_attrib(jid => $to);
-        $item->put_attrib(name => $name) if $name;
-        $conn->getConnectionFromJID($jid)->Send($iq);
-        my $msg = "$baseJID: "
-          . ($name ? "$name ($to)" : "($to)")
-          . " is on your roster in the following groups: { "
-          . join(" , ", keys %allGroups)
-          . " }";
-        queue_admin_msg($msg);
+        @groups = keys %allGroups;
+        $roster->new_contact($to, $name, \@groups, sub {
+            my ($contact, $err) = @_;
+            if (defined($err)) {
+                my $msg = "$baseJID: error adding $to to roster: " . $err->string;
+                queue_admin_msg($msg);
+            } else {
+                my $msg = "$baseJID: "
+                    . (defined($contact->name) ? $contact->name . ' ' : '')
+                    . "(" . $contact->jid . ")"
+                    . " is on your roster in the following groups: { "
+                    . join(" , ", $contact->groups)
+                    . " }";
+                queue_admin_msg($msg);
+            }
+        });
     }
 }
 
 sub jroster_remove {
-    my $jid = shift;
+    my $acc = shift;
     my $name = shift;
     my @groups = @{ shift() };
     my $purgeGroups = shift;
-    my $baseJID = baseJID($jid);
+    my $baseJID = bare_jid($acc->jid);
 
-    my $iq = new Net::Jabber::IQ;
-    $iq->SetType('set');
-    my $item = new XML::Stream::Node('item');
-    $iq->NewChild('jabber:iq:roster')->AddChild($item);
-    $item->put_attrib(subscription=> 'remove');
+    my $roster = $acc->get_roster();
     foreach my $to (@ARGV) {
-        $item->put_attrib(jid => $to);
-        $conn->getConnectionFromJID($jid)->Send($iq);
-        queue_admin_msg("You ($baseJID) have removed ($to) from your roster.");
+        $roster->delete_contact($to, sub {
+            my ($err) = @_;
+            if (defined($err)) {
+                my $msg = "$baseJID: error removing $to from roster: " . $err->string;
+                queue_admin_msg($msg);
+            } else {
+                queue_admin_msg("You ($baseJID) have removed ($to) from your roster.");
+            }
+        });
     }
 }
 
 sub jroster_auth {
-    my $jid = shift;
+    my $acc = shift;
     my $name = shift;
     my @groups = @{ shift() };
     my $purgeGroups = shift;
-    my $baseJID = baseJID($jid);
+    my $baseJID = bare_jid($acc->jid);
 
-    my $p = new Net::Jabber::Presence;
-    $p->SetType('subscribed');
     foreach my $to (@ARGV) {
-        $p->SetTo($to);
-        $conn->getConnectionFromJID($jid)->Send($p);
+        $acc->connection->send_presence('subscribed', undef, to => $to);
         queue_admin_msg("($to) has been subscribed to your ($baseJID) presence.");
     }
 }
 
 sub jroster_deauth {
-    my $jid = shift;
+    my $acc = shift;
     my $name = shift;
     my @groups = @{ shift() };
     my $purgeGroups = shift;
-    my $baseJID = baseJID($jid);
+    my $baseJID = bare_jid($acc->jid);
 
-    my $p = new Net::Jabber::Presence;
-    $p->SetType('unsubscribed');
     foreach my $to (@ARGV) {
-        $p->SetTo($to);
-        $conn->getConnectionFromJID($jid)->Send($p);
+        $acc->connection->send_presence('unsubscribed', undef, to => $to);
         queue_admin_msg("($to) has been unsubscribed from your ($baseJID) presence.");
     }
 }
@@ -1003,139 +948,153 @@ sub jroster_deauth {
 ################################################################################
 ### Owl Callbacks
 sub process_owl_jwrite {
+    my $fields = shift;
     my $body = shift;
 
-    my $j = new Net::Jabber::Message;
+    my $acc = $accounts->get_account($fields->{from});
+    unless (defined($acc) && $acc->is_session_ready) {
+	die $acc->jid . " is not connected.\n";
+    }
+
     $body =~ s/\n\z//;
-    $j->SetMessage(
-        to   => $vars{jwrite}{to},
-        from => $vars{jwrite}{from},
-        type => $vars{jwrite}{type},
-        body => $body
-    );
+    my $msg = new AnyEvent::XMPP::IM::Message(
+	to   => $fields->{to},
+	from => $acc->jid, # Use the full JID from the account; we may
+			   # have had a reconnect in the meantime.
+	type => $fields->{type});
+    $msg->thread($fields->{thread}) if defined($fields->{thread});
+    $msg->add_subject($fields->{subject}) if defined($fields->{subject});
+    $msg->add_body($body) if defined($body);
 
-    $j->SetThread( $vars{jwrite}{thread} )   if ( $vars{jwrite}{thread} );
-    $j->SetSubject( $vars{jwrite}{subject} ) if ( $vars{jwrite}{subject} );
-
-    my $m = j2o( $j, { direction => 'out' } );
-    if ( $vars{jwrite}{type} ne 'groupchat') {
+    if ( $fields->{type} ne 'groupchat') {
+        # Queue an outgoing message for personals.
+        my $m = message_to_obj($acc, $msg, { direction => 'out' } );
         BarnOwl::queue_message($m);
     }
 
-    $j->RemoveFrom(); # Kludge to get around gtalk's random bits after the resource.
-    if ($vars{jwrite}{sid} && $conn->sidExists( $vars{jwrite}{sid} )) {
-        $conn->getConnectionFromSid($vars{jwrite}{sid})->Send($j);
-    }
-    else {
-        $conn->getConnectionFromJID($vars{jwrite}{from})->Send($j);
-    }
-
-    delete $vars{jwrite};
+    $msg->send($acc->connection);
     BarnOwl::message("");   # Kludge to make the ``type your message...'' message go away
 }
 
 ### XMPP Callbacks
 
-sub process_incoming_chat_message {
-    my ( $sid, $j ) = @_;
-    if ($j->DefinedBody() || BarnOwl::getvar('jabber:spew') eq 'on') {
-        BarnOwl::queue_message( j2o( $j, { direction => 'in',
-                                           sid => $sid } ) );
+sub on_connected {
+    my ($acc, $jid) = @_;
+    BarnOwl::admin_message('Jabber', "Connected to jabber as " . $jid);
+}
+
+sub on_connect_error {
+    my ($acc, $host, $port, $message) = @_;
+    # If the account isn't there, then we logged out explicitly.
+    return unless $accounts->get_account($acc->jid) == $acc;
+    my $jid = $acc->jid;
+    BarnOwl::error("Error in connecting to $jid: $message");
+    $accounts->remove_account($acc);
+}
+
+sub on_disconnect {
+    my ($acc, $host, $port, $message) = @_;
+    # If the account isn't there, then we logged out explicitly.
+    return unless $accounts->get_account($acc->jid) == $acc;
+    my $jid = $acc->jid;
+    $message //= '';
+    BarnOwl::admin_message('Jabber', "Disconnected from $jid: $message");
+    # TODO: Reconnect logic.
+    $accounts->remove_account($acc);
+}
+
+sub on_message {
+    my ($acc, $msg) = @_;
+    if (defined($msg->any_body()) || BarnOwl::getvar('jabber:spew') eq 'on') {
+        BarnOwl::queue_message(message_to_obj($acc, $msg, { direction => 'in' }));
     }
 }
 
-sub process_incoming_error_message {
-    my ( $sid, $j ) = @_;
-    my %jhash = j2hash( $j, { direction => 'in',
-                              sid => $sid } );
-    $jhash{type} = 'admin';
-    
-    BarnOwl::queue_message( BarnOwl::Message->new(%jhash) );
+sub on_message_error {
+    my ($acc, $error) = @_;
+    BarnOwl::queue_message(message_error_to_obj($error, { direction => 'in' }));
 }
 
-sub process_incoming_groupchat_message {
-    my ( $sid, $j ) = @_;
+sub on_presence_xml {
+    my ($acc, $node) = @_;
 
-    # HACK IN PROGRESS (ignoring delayed messages)
-    return if ( $j->DefinedX('jabber:x:delay') && $j->GetX('jabber:x:delay') );
-    BarnOwl::queue_message( j2o( $j, { direction => 'in',
-                                   sid => $sid } ) );
-}
-
-sub process_incoming_headline_message {
-    my ( $sid, $j ) = @_;
-    BarnOwl::queue_message( j2o( $j, { direction => 'in',
-                                   sid => $sid } ) );
-}
-
-sub process_incoming_normal_message {
-    my ( $sid, $j ) = @_;
-    my %jhash = j2hash( $j, { direction => 'in',
-                              sid => $sid } );
-
-    # XXX TODO: handle things such as MUC invites here.
-
-    #    if ($j->HasX('http://jabber.org/protocol/muc#user'))
-    #    {
-    #	my $x = $j->GetX('http://jabber.org/protocol/muc#user');
-    #	if ($x->HasChild('invite'))
-    #	{
-    #	    $props
-    #	}
-    #    }
+    # We really want to use the presence_update event, but
+    # unfortunately it's not really unusable. There's a bug where it
+    # gets sent even for 'subscribed', etc. More importantly, on
+    # 'unavailable', we don't even get the node, so we can't pull out
+    # any logout statuses and such. Instead, watch for all presence
+    # stanzas and react.
     #
-    if ($j->DefinedBody() || BarnOwl::getvar('jabber:spew') eq 'on') {
-        BarnOwl::queue_message( BarnOwl::Message->new(%jhash) );
+    # Code based on AnyEvent::XMPP::IM::Connection::handle_presence.
+
+    if (defined ($node->attr ('to')) && !cmp_bare_jid ($node->attr ('to'), $acc->jid)) {
+        return; # ignore presence that is not for us
+    }
+
+    my $type = $node->attr('type');
+    $type //= 'available';
+    if ($type eq 'available' || $type eq 'unavailable') {
+        my $to = $node->attr('to');
+        my $from = $node->attr('from');
+        return unless (BarnOwl::getvar('jabber:show_logins') eq 'on');
+
+        # Create a presence object to parse most of this gunk.
+        my $p = AnyEvent::XMPP::IM::Presence->new();
+        $p->update($node);
+
+        # Skip delayed messages. They're likely delayed unavailable
+        # messages sent according to RFC 6121, section 4.3.2, step 3.
+        return if $p->is_delayed();
+
+        my %props = (
+            to => $to,
+            from => $from,
+            recipient => bare_jid($to),
+            sender => bare_jid($from),
+            type => 'jabber',
+            jtype => $type,
+            defined($p->status()) ? (status => $p->status()) : (),
+            defined($p->show()) ? (show => $p->show()) : (),
+            xml => $node->as_string(),
+            direction => 'in');
+
+        if ($type eq 'available') {
+            $props{body} = "$from is now online. ";
+	    # TODO: Either include compat code in perlmessages or swap
+	    # this to login when the time comes.
+	    $props{loginout} = 'login';
+        } else {
+            $props{body} = "$from is now offline. ";
+	    $props{loginout} = 'logout';
+        }
+        BarnOwl::queue_message(BarnOwl::Message->new(%props));
     }
 }
 
-sub process_muc_presence {
-    my ( $sid, $p ) = @_;
-    return unless ( $p->HasX('http://jabber.org/protocol/muc#user') );
+sub on_presence_error {
+    my ($acc, $err) = @_;
+
+    my $code = $err->code;
+    my $error = $err->text;
+    # TODO: may as well pull out all the other fields.
+    BarnOwl::error("Jabber: $code $error");
 }
 
-
-sub process_presence_available {
-    my ( $sid, $p ) = @_;
-    my $from = $p->GetFrom('jid')->GetJID('base');
-    $completion_jids{$from} = 1;
-    return unless (BarnOwl::getvar('jabber:show_logins') eq 'on');
-    my $to = $p->GetTo();
-    my $type = $p->GetType();
-    my %props = (
-        to => $to,
-        from => $p->GetFrom(),
-        recipient => $to,
-        sender => $from,
-        type => 'jabber',
-        jtype => $p->GetType(),
-        status => $p->GetStatus(),
-        show => $p->GetShow(),
-        xml => $p->GetXML(),
-        direction => 'in');
-
-    if ($type eq '' || $type eq 'available') {
-        $props{body} = "$from is now online. ";
-        $props{loginout} = 'login';
-    }
-    else {
-        $props{body} = "$from is now offline. ";
-        $props{loginout} = 'logout';
-    }
-    BarnOwl::queue_message(BarnOwl::Message->new(%props));
-}
-
-sub process_presence_subscribe {
-    my ( $sid, $p ) = @_;
-    my $from = $p->GetFrom();
-    my $to = $p->GetTo();
+sub on_contact_request_subscribe {
+    my ($acc, $roster, $contact, $message) = @_;
+    my $from = $contact->jid;
+    my $to = $acc->jid;
     my %props = (
         to => $to,
         from => $from,
-        xml => $p->GetXML(),
         type => 'admin',
+    # TODO: Get the XML node to attach to the message.
+    #   xml => $p->GetXML(),
         adminheader => 'Jabber presence: subscribe',
         direction => 'in');
+    # TODO: Do something with $message. (Although RFC 6121 says the
+    # client MAY ignore it to help prevent "presence subscription
+    # spam".)
 
     $props{body} = "Allow user ($from) to subscribe to your ($to) presence?\n" .
                    "(Answer with the `yes' or `no' commands)";
@@ -1145,142 +1104,200 @@ sub process_presence_subscribe {
     BarnOwl::queue_message(BarnOwl::Message->new(%props));
 }
 
-sub process_presence_unsubscribe {
-    my ( $sid, $p ) = @_;
-    my $from = $p->GetFrom();
-    my $to = $p->GetTo();
+sub on_contact_did_unsubscribe {
+    my ($acc, $roster, $contact, $message) = @_;
+    my $from = $roster->jid;
+    my $to = $acc->jid;
     my %props = (
         to => $to,
         from => $from,
-        xml => $p->GetXML(),
+    # TODO: Get the XML node to attach to the message.
+    #   xml => $p->GetXML(),
         type => 'admin',
         adminheader => 'Jabber presence: unsubscribe',
         direction => 'in');
+    # TODO: Do something with $message. (Although RFC 6121 says the
+    # client MAY ignore it to help prevent "presence subscription
+    # spam".)
 
     $props{body} = "The user ($from) has been unsubscribed from your ($to) presence.\n";
     BarnOwl::queue_message(BarnOwl::Message->new(%props));
-
-    # Find a connection to reply with.
-    foreach my $jid ($conn->getJIDs()) {
-	my $cJID = new Net::Jabber::JID;
-	$cJID->SetJID($jid);
-	if ($to eq $cJID->GetJID('base') ||
-            $to eq $cJID->GetJID('full')) {
-	    my $reply = $p->Reply(type=>"unsubscribed");
-	    $conn->getConnectionFromJID($jid)->Send($reply);
-	    return;
-	}
-    }
 }
 
-sub process_presence_subscribed {
-    my ( $sid, $p ) = @_;
-    queue_admin_msg("ignoring:".$p->GetXML()) if BarnOwl::getvar('jabber:spew') eq 'on';
+sub on_contact_subscribed {
+    my ($acc, $roster, $contact, $message) = @_;
+    if (BarnOwl::getvar('jabber:spew') eq 'on') {
+	# TODO: Get the XML node to attach to the message as before.
+	queue_admin_msg("ignoring: subscribed notice from "
+			. $contact->jid . " to " . $acc->jid);
+    }
+
     # RFC 3921 says we should respond to this with a "subscribe"
     # but this causes a flood of sub/sub'd presence packets with
     # some servers, so we won't. We may want to detect this condition
     # later, and have per-server settings.
-    return;
+    #
+    # It also appears this has been removed in RFC 6121.
 }
 
-sub process_presence_unsubscribed {
-    my ( $sid, $p ) = @_;
-    queue_admin_msg("ignoring:".$p->GetXML()) if BarnOwl::getvar('jabber:spew') eq 'on';
+sub on_contact_unsubscribed {
+    my ($acc, $roster, $contact, $message) = @_;
+    if (BarnOwl::getvar('jabber:spew') eq 'on') {
+	# TODO: Get the XML node to attach to the message as before.
+	queue_admin_msg("ignoring: unsubscribed notice from "
+			. $contact->jid . " to " . $acc->jid);
+    }
+
     # RFC 3921 says we should respond to this with a "subscribe"
-    # but this causes a flood of unsub/unsub'd presence packets with
+    # but this causes a flood of sub/sub'd presence packets with
     # some servers, so we won't. We may want to detect this condition
     # later, and have per-server settings.
-    return;
+    #
+    # It also appears this has been removed in RFC 6121.
 }
 
-sub process_presence_error {
-    my ( $sid, $p ) = @_;
-    my $code = $p->GetErrorCode();
-    my $error = $p->GetError();
-    BarnOwl::error("Jabber: $code $error");
+sub on_roster_update {
+    my ($acc, $roster, $contacts) = @_;
+    # Instead of adding every contact we ever see to the completion
+    # list, just do it when we receive the roster.
+    for my $contact (@$contacts) {
+        # TODO: Just use the roster (and MUC list) itself as the
+        # completion list?
+        $completion_jids{$contact->jid} = 1;
+        $completion_jids{$contact->name} = 1 if defined($contact->name);
+    }
 }
 
+sub on_muc_message {
+    my ($acc, $room, $msg, $is_echo) = @_;
+    
+    # TODO: Huh? What's this?
+    # HACK IN PROGRESS (ignoring delayed messages)
+    return if $msg->is_delayed();
+
+    # TODO: Handle MUC invites here (or in AnyEvent::XMPP).
+    if (defined($msg->any_body()) || BarnOwl::getvar('jabber:spew') eq 'on') {
+        BarnOwl::queue_message(message_to_obj($acc, $msg, { direction => 'in' }));
+    }
+}
+
+sub on_muc_subject_change {
+    my ($acc, $room, $msg, $is_echo) = @_;
+
+    # Just forward it to the normal message path. We distinguish
+    # subject changes when serializing.
+    BarnOwl::queue_message(message_to_obj($acc, $msg, { direction => 'in' }));
+}
+
+sub on_muc_error {
+    my ($acc, $room, $error) = @_;
+    my $msg_error = $error->message_error();
+    if (defined($msg_error)) {
+        BarnOwl::queue_message(message_error_to_obj($msg_error, { direction => 'in' }));
+    } else {
+        BarnOwl::error("Jabber: " . $error->string);
+    }
+}
+
+my $have_twig = 1;
+sub dump_twig_xml_or_raw {
+    # Pretty-printed XML is nice, but keep the XML::Twig dependency
+    # optional.
+    my $data = shift;
+    eval { $data = dump_twig_xml($data); } if $have_twig;
+    $have_twig = 0 if $@;
+    return $data;
+}
+
+sub on_debug_recv {
+    my ($acc, $data) = @_;
+    # TODO: Don't run dump_twig_xml unless debug is on.
+    BarnOwl::debug(sprintf("XMPP recv>> %s\n%s",
+                           $acc->jid, dump_twig_xml_or_raw($data)));
+}
+
+sub on_debug_send {
+    my ($acc, $data) = @_;
+    # TODO: Don't run dump_twig_xml unless debug is on.
+    BarnOwl::debug(sprintf("XMPP send>> %s\n%s",
+                           $acc->jid, dump_twig_xml_or_raw($data)));
+}
 
 ### Helper functions
 
-sub j2hash {
+sub message_to_obj {
+    my $acc = shift;
     my $j   = shift;
     my %props = (type => 'jabber',
-                 dir  => 'none',
                  %{$_[0]});
 
     my $dir = $props{direction};
 
-    my $jtype = $props{jtype} = $j->GetType();
-    my $from = $j->GetFrom('jid');
-    my $to   = $j->GetTo('jid');
+    my $jtype = $props{jtype} = $j->type();
+    my $from = $j->from();
+    my $to   = $j->to();
 
-    $props{from} = $from->GetJID('full');
-    $props{to}   = $to->GetJID('full');
+    $props{from} = $from;
+    $props{to}   = $to;
 
-    $props{recipient}  = $to->GetJID('base');
-    $props{sender}     = $from->GetJID('base');
-    $props{subject}    = $j->GetSubject() if ( $j->DefinedSubject() );
-    $props{thread}     = $j->GetThread() if ( $j->DefinedThread() );
-    if ( $j->DefinedBody() ) {
-        $props{body}   = $j->GetBody();
+    $props{recipient}  = bare_jid($to);
+    $props{sender}     = bare_jid($from);
+    # TODO: Support picking a language
+    $props{subject}    = $j->any_subject() if defined($j->any_subject());
+    $props{thread}     = $j->thread() if defined($j->thread());
+    if ( defined $j->any_body() ) {
+        $props{body}   = $j->any_body();
         $props{body}  =~ s/\xEF\xBB\xBF//g; # Strip stray Byte-Order-Marks.
     }
-    $props{error}      = $j->GetError() if ( $j->DefinedError() );
-    $props{error_code} = $j->GetErrorCode() if ( $j->DefinedErrorCode() );
-    $props{xml}        = $j->GetXML();
+    if (defined $j->xml_node()) {
+	# TODO: stringify outgoing messages too?
+	$props{xml}        = $j->xml_node()->as_string();
+    }
 
-    if ( $jtype eq 'groupchat' ) {
-        my $nick = $props{nick} = $from->GetResource();
-        my $room = $props{room} = $from->GetJID('base');
-        $completion_jids{$room} = 1;
+    # TODO: do something about delayed messages
 
-        my $muc;
-        if ($dir eq 'in') {
-            my $connection = $conn->getConnectionFromSid($props{sid});
-            $muc = $connection->FindMUC(jid => $from);
-        } else {
-            my $connection = $conn->getConnectionFromJID($props{from});
-            $muc = $connection->FindMUC(jid => $to);
+    # TODO: See about using the various convenience methods
+    # AnyEvent::XMPP::Ext::MUC::Message provides.
+    if ($jtype eq 'groupchat') {
+	# Only handle outgoing groupchat messages. We can duplicate
+	# the code for serializing incoming groupchat messages if we
+	# ever create them.
+	die "Got outgoing groupchat message!" unless $dir eq 'in';
+
+        my $nick = $props{nick} = res_jid($from);
+        my $room = $props{room} = bare_jid($from);
+
+        # Try to get the full JID of the user.
+        my $room_obj = $acc->muc->get_room($acc->connection, $room);
+        if (defined($room_obj)) {
+            my $user = $room_obj->get_user($nick);
+            if (defined($user)) {
+                $props{from} = $user->real_jid // $props{from};
+            }
         }
-        $props{from} = $muc->GetFullJID($from) || $props{from};
-        $props{sender} = $nick || $room;
+
+        $props{sender} = $nick // $room;
         $props{recipient} = $room;
 
-        if ( $props{subject} && !$props{body} ) {
+        if ( defined($props{subject}) && !defined($props{body}) ) {
             $props{body} =
               '[' . $nick . " has set the topic to: " . $props{subject} . "]";
         }
-    }
-    elsif ( $jtype eq 'headline' ) {
-        ;
-    }
-    elsif ( $jtype eq 'error' ) {
-        $props{body}     = "Error "
-          . $props{error_code}
-          . " sending to "
-          . $props{from} . "\n"
-          . $props{error};
-    }
-    else { # chat, or normal (default)
+    } elsif ($jtype eq 'error' || $jtype eq 'headline') {
+	# Do nothing; 'error' should be instantiated as
+	# AnyEvent::XMPP::Error::Message anyway and processed
+	# elsewhere.
+    } else {
+        # 'chat', 'normal', or something unknown (which is assumed to
+        # be 'normal')
         $props{private} = 1;
-
-        my $connection;
-        if ($dir eq 'in') {
-            $connection = $conn->getConnectionFromSid($props{sid});
-        }
-        else {
-            $connection = $conn->getConnectionFromJID($props{from});
-        }
 
         # Check to see if we're doing personals with someone in a muc.
         # If we are, show the full jid because the base jid is the room.
-        if ($connection) {
-            $props{sender} = $props{from}
-              if ($connection->FindMUC(jid => $from));
-            $props{recipient} = $props{to}
-              if ($connection->FindMUC(jid => $to));
-        }
+        $props{sender} = $props{from}
+          if (defined($acc->muc->get_room($acc->connection, $from)));
+        $props{recipient} = $props{to}
+          if (defined($acc->muc->get_room($acc->connection, $to)));
 
         # Populate completion.
         if ($dir eq 'in') {
@@ -1291,11 +1308,52 @@ sub j2hash {
         }
     }
 
-    return %props;
+    return BarnOwl::Message->new(%props);
 }
 
-sub j2o {
-    return BarnOwl::Message->new( j2hash(@_) );
+sub message_error_to_obj {
+    my $j   = shift;
+    my %props = (type => 'admin',
+                 %{$_[0]});
+
+    my $dir = $props{direction};
+
+    my ($from, $to);
+    my $node = $j->xml_node();
+    if (defined($node)) {
+        # Unfortunately, these guys aren't completely pre-parsed.
+        $from = $node->attr('from');
+        $to   = $node->attr('to');
+        $props{xml} = $node->as_string();
+    }
+
+    $props{from} = $from;
+    $props{to}   = $to;
+    $props{jtype} = 'error';
+
+    $props{recipient}  = bare_jid($to);
+    $props{sender}     = bare_jid($from);
+
+    $props{error}      = $j->text();
+    $props{error_code} = $j->code();
+    $props{error_type} = $j->type();
+    $props{error_condition} = $j->condition();
+
+    if (defined($props{from})) {
+        $props{body}     = sprintf("Error sending to %s: %s/%s (type %s)\n%s",
+                                   $props{from},
+                                   $props{error_code},
+                                   $props{error_condition},
+                                   $props{error_type},
+                                   $props{error});
+    } else {
+        $props{body}     = sprintf("Error: %s/%s (type %s)\n%s",
+                                   $props{error_code},
+                                   $props{error_condition},
+                                   $props{error_type},
+                                   $props{error});
+    }
+    return BarnOwl::Message->new(%props);
 }
 
 sub queue_admin_msg {
@@ -1303,93 +1361,52 @@ sub queue_admin_msg {
     BarnOwl::admin_message("Jabber", $err);
 }
 
-sub getServerFromJID {
-    my $jid = shift;
-    my $res = new Net::DNS::Resolver;
-    my $packet =
-      $res->search( '_xmpp-client._tcp.' . $jid->GetServer(), 'srv' );
-
-    if ($packet)    # Got srv record.
-    {
-        my @answer = $packet->answer;
-        return $answer[0]{target}, $answer[0]{port};
-    }
-
-    return $jid->GetServer(), 5222;
-}
-
-sub defaultJID {
-    return ( $conn->getJIDs() )[0] if ( $conn->connected() == 1 );
-    return;
-}
-
-sub baseJID {
-    my $givenJIDStr = shift;
-    my $givenJID    = new Net::Jabber::JID;
-    $givenJID->SetJID($givenJIDStr);
-    return $givenJID->GetJID('base');
-}
-
+# Matches the account with the given JID. Otherwise searches for a
+# string match among all accounts.
+# FIXME: The connected bit in this function is a lie.
 sub resolveConnectedJID {
     my $givenJIDStr = shift;
-    my $loose = shift || 0;
-    my $givenJID    = new Net::Jabber::JID;
-    $givenJID->SetJID($givenJIDStr);
 
-    # Account fully specified.
-    if ( $givenJID->GetResource() ) {
-        # Specified account exists
-        return $givenJIDStr if ($conn->jidExists($givenJIDStr) );
-        return resolveConnectedJID($givenJID->GetJID('base')) if $loose;
-        die("Invalid account: $givenJIDStr\n");
+    if (!defined($givenJIDStr)) {
+        die "Not connected to Jabber.\n" unless $accounts->connected;
+        # FIXME: This is somewhat a hack, but better than the old
+        # code. It's probably not terrible asserting that every
+        # command takes account with -a at this layer.
+        die "You must specify an account with -a <jid>.\n" unless $accounts->connected == 1;
+        return ($accounts->accounts())[0];
     }
 
-    # Disambiguate.
+    # Account fully specified.
+    my $acc = $accounts->get_account($givenJIDStr);
+    if (defined($acc)) {
+	return $acc;
+    }
+
+    # String match
     else {
-        my $JIDMatchingJID = "";
-        my $strMatchingJID = "";
-        my $JIDMatches = "";
+        my $strMatchingAcc;
         my $strMatches = "";
-        my $JIDAmbiguous = 0;
         my $strAmbiguous = 0;
 
-        foreach my $jid ( $conn->getJIDs() ) {
-            my $cJID = new Net::Jabber::JID;
-            $cJID->SetJID($jid);
-            if ( $givenJIDStr eq $cJID->GetJID('base') ) {
-                $JIDAmbiguous = 1 if ( $JIDMatchingJID ne "" );
-                $JIDMatchingJID = $jid;
-                $JIDMatches .= "\t$jid\n";
-            }
-            if ( $cJID->GetJID('base') =~ /$givenJIDStr/ ) {
-                $strAmbiguous = 1 if ( $strMatchingJID ne "" );
-                $strMatchingJID = $jid;
+        foreach my $acc ( $accounts->accounts() ) {
+	    my $jid = $acc->jid;
+            if ( $jid =~ /\Q$givenJIDStr\E/ ) {
+                $strAmbiguous = 1 if defined($strMatchingAcc);
+                $strMatchingAcc = $acc;
                 $strMatches .= "\t$jid\n";
             }
         }
 
         # Need further disambiguation.
-        if ($JIDAmbiguous) {
-            my $errStr =
-                "Ambiguous account reference. Please specify a resource.\n";
-            die($errStr.$JIDMatches);
-        }
-
-        # It's this one.
-        elsif ($JIDMatchingJID ne "") {
-            return $JIDMatchingJID;
-        }
-
-        # Further resolution by substring.
-        elsif ($strAmbiguous) {
+        if ($strAmbiguous) {
             my $errStr =
                 "Ambiguous account reference. Please be more specific.\n";
             die($errStr.$strMatches);
         }
 
         # It's this one, by substring.
-        elsif ($strMatchingJID ne "") {
-            return $strMatchingJID;
+        elsif (defined($strMatchingAcc)) {
+            return $strMatchingAcc;
         }
 
         # Not one of ours.
@@ -1398,35 +1415,38 @@ sub resolveConnectedJID {
         }
 
     }
-    return "";
+    return;
 }
 
 sub resolveDestJID {
-    my ($to, $from) = @_;
-    my $jid = Net::Jabber::JID->new($to);
+    my ($to, $acc) = @_;
 
-    my $roster = $conn->getRosterFromJID($from);
-    my @jids = $roster->jids('all');
-    for my $j (@jids) {
-        if(($roster->query($j, 'name') || $j->GetUserID()) eq $to) {
-            return $j->GetJID('full');
-        } elsif($j->GetJID('base') eq baseJID($to)) {
-            return $jid->GetJID('full');
+    # If it already looks like a JID, return unconditionally.
+    return $to if $to =~ /@/;
+
+    # Otherwise, try to match by name on the roster.
+    my $roster = $acc->get_roster();
+    if (defined($roster)) {
+        for my $contact ($roster->get_contacts()) {
+            if ($contact->name eq $to) {
+                return $contact->jid;
+            }
+            if (node_jid($contact->jid) eq $to) {
+                return $contact->jid;
+            }
         }
     }
-
-    # If we found nothing being clever, check to see if our input was
-    # sane enough to look like a jid with a UserID.
-    return $jid->GetJID('full') if $jid->GetUserID();
+    # Nope. No luck.
     return undef;
 }
 
 sub resolveType {
-    my $to = shift;
-    my $from = shift;
-    return unless $from;
-    my @mucs = $conn->getConnectionFromJID($from)->MUCs;
-    if(grep {$_->BaseJID eq $to } @mucs) {
+    my $to_jid = shift;
+    my $from_acc = shift;
+    return unless defined($from_acc);
+    if (is_bare_jid($to_jid) &&
+	defined($from_acc->muc->get_room($from_acc->connection, $to_jid))) {
+	# Sending to a MUC has type groupchat.
         return 'groupchat';
     } else {
         return 'chat';
@@ -1438,21 +1458,17 @@ sub guess_jwrite {
     my ($from, $to) = (@_);
     my ($from_jid, $to_jid);
     my @matches;
-    if($from) {
-        $from_jid = resolveConnectedJID($from, 1);
-        die("Unable to resolve account $from\n") unless $from_jid;
-        $to_jid = resolveDestJID($to, $from_jid);
-        push @matches, [$from_jid, $to_jid] if $to_jid;
+    if (defined($from)) {
+        my $from_acc = resolveConnectedJID($from);
+        die("Unable to resolve account $from\n") unless defined $from_acc;
+        $to_jid = resolveDestJID($to, $from_acc);
+        push @matches, [$from_acc, $to_jid] if $to_jid;
     } else {
-        for my $f ($conn->getJIDs) {
-            $to_jid = resolveDestJID($to, $f);
+	for my $acc ($accounts->accounts) {
+            $to_jid = resolveDestJID($to, $acc);
             if(defined($to_jid)) {
-                push @matches, [$f, $to_jid];
+                push @matches, [$acc, $to_jid];
             }
-        }
-        if($to =~ /@/) {
-            push @matches, [$_, $to]
-               for ($conn->getJIDs);
         }
     }
 
@@ -1468,7 +1484,7 @@ sub guess_jwrite {
 ### Completion
 
 sub complete_user_or_muc { return keys %completion_jids; }
-sub complete_account { return $conn->getJIDs(); }
+sub complete_account { return map { bare_jid($_->jid) } $accounts->accounts; }
 
 sub complete_jwrite {
     my $ctx = shift;

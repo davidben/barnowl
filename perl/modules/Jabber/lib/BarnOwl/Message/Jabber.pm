@@ -13,6 +13,8 @@ A subclass of BarnOwl::Message for Jabber messages
 
 package BarnOwl::Message::Jabber;
 
+use AnyEvent::XMPP::Util qw(bare_jid res_jid);
+
 use base qw( BarnOwl::Message );
 
 sub jtype { shift->{jtype} };
@@ -42,9 +44,8 @@ sub login_extra {
 sub long_sender {
     my $self = shift;
     if ($self->jtype eq 'groupchat' && $self->nick) {
-        my $from_jid = Net::Jabber::JID->new($self->from);
-        if ($from_jid->GetJID('base') eq $self->room &&
-            $from_jid->GetResource() eq $self->nick) {
+        if (bare_jid($self->from) eq $self->room &&
+            res_jid($self->from) eq $self->nick) {
             return $self->nick;
         }
     }
@@ -107,7 +108,7 @@ sub smartfilter_user {
     my $user = shift;
     my $inst = shift;
 
-    $user   = Net::Jabber::JID->new($user)->GetJID( $inst ? 'full' : 'base' );
+    $user = bare_jid($user) unless $inst;
     my $filter = "jabber-user-$user";
     BarnOwl::command(qw[filter], $filter, qw[type ^jabber$],
                      qw[and ( ( direction ^in$ and from], "^\Q$user\E(/.*)?\$",
