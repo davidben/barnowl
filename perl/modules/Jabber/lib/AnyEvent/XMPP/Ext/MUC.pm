@@ -46,7 +46,8 @@ sub new {
    my $this = shift;
    my $class = ref($this) || $this;
    my $self = bless { join_timeout => 60, @_ }, $class;
-   $self->{inhibit_forward} = { map { ($_ => 1) } qw/message presence/ };
+   $self->{inhibit_forward} = { map { ($_ => 1) } qw/message presence
+                                                     error message_error/ };
    $self->init;
    $self
 }
