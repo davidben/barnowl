@@ -10,9 +10,6 @@ This project's perl/lib/ contains the lib directories from the
 following CPAN modules:
 
 AnyEvent::XMPP
-Net::Jabber
-Net::XMPP
-XML::Stream
 
 They have been modified slightly for the needs of this project.
 
