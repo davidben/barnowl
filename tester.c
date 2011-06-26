@@ -20,9 +20,9 @@ int owl_variable_regtest(void);
 int owl_filter_regtest(void);
 int owl_obarray_regtest(void);
 int owl_editwin_regtest(void);
-int owl_list_regtest(void);
 int owl_fmtext_regtest(void);
 int owl_smartfilter_regtest(void);
+int owl_history_regtest(void);
 
 extern void owl_perl_xs_init(pTHX);
 
@@ -32,6 +32,7 @@ int main(int argc, char **argv, char **env)
   FILE *wnull;
   char *perlerr;
   int status = 0;
+  SCREEN *screen;
 
   if (argc <= 1) {
     fprintf(stderr, "Usage: %s --builtin|TEST.t|-le CODE\n", argv[0]);
@@ -41,7 +42,7 @@ int main(int argc, char **argv, char **env)
   /* initialize a fake ncurses, detached from std{in,out} */
   wnull = fopen("/dev/null", "w");
   rnull = fopen("/dev/null", "r");
-  newterm("xterm", wnull, rnull);
+  screen = newterm("xterm", wnull, rnull);
   /* initialize global structures */
   owl_global_init(&g);
 
@@ -90,6 +91,7 @@ int main(int argc, char **argv, char **env)
   perl_free(owl_global_get_perlinterp(&g));
   /* probably not necessary, but tear down the screen */
   endwin();
+  delscreen(screen);
   fclose(rnull);
   fclose(wnull);
   return status;
@@ -107,9 +109,9 @@ int owl_regtest(void) {
   numfailures += owl_variable_regtest();
   numfailures += owl_filter_regtest();
   numfailures += owl_editwin_regtest();
-  numfailures += owl_list_regtest();
   numfailures += owl_fmtext_regtest();
   numfailures += owl_smartfilter_regtest();
+  numfailures += owl_history_regtest();
   if (numfailures) {
       fprintf(stderr, "# *** WARNING: %d failures total\n", numfailures);
   }
@@ -137,8 +139,6 @@ int owl_util_regtest(void)
       g_free(__value);                                 \
     } while (0)
 
-  CHECK_STR_AND_FREE("owl_util_substitute 1", "foo",
-	             owl_text_substitute("foo", "", "Y"));
   CHECK_STR_AND_FREE("owl_text_substitute 2", "fYZYZ",
                      owl_text_substitute("foo", "o", "YZ"));
   CHECK_STR_AND_FREE("owl_text_substitute 3", "foo",
@@ -190,7 +190,7 @@ int owl_util_regtest(void)
 		  __argv[__argc] == NULL);		\
       FAIL_UNLESS(desc " - parsed",			\
 		  !strcmp(__argv[0], unquoted));	\
-      owl_parse_delete(__argv, __argc);			\
+      g_strfreev(__argv);               		\
       g_free(__quoted);				\
     } while (0)
 
@@ -220,8 +220,8 @@ int owl_util_regtest(void)
   GString *g = g_string_new("");
   owl_string_appendf_quoted(g, "%q foo %q%q %s %", "hello", "world is", "can't");
   FAIL_UNLESS("owl_string_appendf",
-              !strcmp(g_string_free(g, false),
-                      "hello foo 'world is'\"can't\" %s %"));
+              !strcmp(g->str, "hello foo 'world is'\"can't\" %s %"));
+  g_string_free(g, true);
 
   /* if (numfailed) printf("*** WARNING: failures encountered with owl_util\n"); */
   printf("# END testing owl_util (%d failures)\n", numfailed);
@@ -230,12 +230,13 @@ int owl_util_regtest(void)
 
 int owl_dict_regtest(void) {
   owl_dict d;
-  owl_list l;
+  GPtrArray *l;
   int numfailed=0;
-  char *av="aval", *bv="bval", *cv="cval", *dv="dval";
+  char *av = g_strdup("aval"), *bv = g_strdup("bval"), *cv = g_strdup("cval"),
+    *dv = g_strdup("dval");
 
   printf("# BEGIN testing owl_dict\n");
-  FAIL_UNLESS("create", 0==owl_dict_create(&d));
+  owl_dict_create(&d);
   FAIL_UNLESS("insert b", 0==owl_dict_insert_element(&d, "b", bv, owl_dict_noop_delete));
   FAIL_UNLESS("insert d", 0==owl_dict_insert_element(&d, "d", dv, owl_dict_noop_delete));
   FAIL_UNLESS("insert a", 0==owl_dict_insert_element(&d, "a", av, owl_dict_noop_delete));
@@ -250,16 +251,21 @@ int owl_dict_regtest(void) {
   FAIL_UNLESS("find d (post-removal)", NULL==owl_dict_find_element(&d, "d"));
 
   FAIL_UNLESS("get_size", 3==owl_dict_get_size(&d));
-  FAIL_UNLESS("get_keys", 0==owl_dict_get_keys(&d, &l));
-  FAIL_UNLESS("get_keys result size", 3==owl_list_get_size(&l));
+  l = owl_dict_get_keys(&d);
+  FAIL_UNLESS("get_keys result size", 3 == l->len);
   
   /* these assume the returned keys are sorted */
-  FAIL_UNLESS("get_keys result val",0==strcmp("a",owl_list_get_element(&l,0)));
-  FAIL_UNLESS("get_keys result val",0==strcmp("b",owl_list_get_element(&l,1)));
-  FAIL_UNLESS("get_keys result val",0==strcmp("c",owl_list_get_element(&l,2)));
+  FAIL_UNLESS("get_keys result val", 0 == strcmp("a", l->pdata[0]));
+  FAIL_UNLESS("get_keys result val", 0 == strcmp("b", l->pdata[1]));
+  FAIL_UNLESS("get_keys result val", 0 == strcmp("c", l->pdata[2]));
 
-  owl_list_cleanup(&l, g_free);
+  owl_ptr_array_free(l, g_free);
   owl_dict_cleanup(&d, NULL);
+
+  g_free(av);
+  g_free(bv);
+  g_free(cv);
+  g_free(dv);
 
   /*  if (numfailed) printf("*** WARNING: failures encountered with owl_dict\n"); */
   printf("# END testing owl_dict (%d failures)\n", numfailed);
@@ -269,7 +275,7 @@ int owl_dict_regtest(void) {
 int owl_variable_regtest(void) {
   owl_vardict vd;
   int numfailed=0;
-  char buf[1024];
+  char *value;
   const void *v;
 
   printf("# BEGIN testing owl_variable\n");
@@ -277,8 +283,9 @@ int owl_variable_regtest(void) {
 
   FAIL_UNLESS("get bool", 0==owl_variable_get_bool(&vd,"rxping"));
   FAIL_UNLESS("get bool (no such)", -1==owl_variable_get_bool(&vd,"mumble"));
-  FAIL_UNLESS("get bool as string 1", 0==owl_variable_get_tostring(&vd,"rxping", buf, 1024));
-  FAIL_UNLESS("get bool as string 2", 0==strcmp(buf,"off"));
+  FAIL_UNLESS("get bool as string",
+	      !strcmp((value = owl_variable_get_tostring(&vd,"rxping")), "off"));
+  g_free(value);
   FAIL_UNLESS("set bool 1", 0==owl_variable_set_bool_on(&vd,"rxping"));
   FAIL_UNLESS("get bool 2", 1==owl_variable_get_bool(&vd,"rxping"));
   FAIL_UNLESS("set bool 3", 0==owl_variable_set_fromstring(&vd,"rxping","off",0,0));
@@ -293,8 +300,9 @@ int owl_variable_regtest(void) {
 
   FAIL_UNLESS("get int", 8==owl_variable_get_int(&vd,"typewinsize"));
   FAIL_UNLESS("get int (no such)", -1==owl_variable_get_int(&vd,"mmble"));
-  FAIL_UNLESS("get int as string 1", 0==owl_variable_get_tostring(&vd,"typewinsize", buf, 1024));
-  FAIL_UNLESS("get int as string 2", 0==strcmp(buf,"8"));
+  FAIL_UNLESS("get int as string",
+	      !strcmp((value = owl_variable_get_tostring(&vd,"typewinsize")), "8"));
+  g_free(value);
   FAIL_UNLESS("set int 1", 0==owl_variable_set_int(&vd,"typewinsize",12));
   FAIL_UNLESS("get int 2", 12==owl_variable_get_int(&vd,"typewinsize"));
   FAIL_UNLESS("set int 1b", -1==owl_variable_set_int(&vd,"typewinsize",-3));
@@ -518,52 +526,6 @@ int owl_editwin_regtest(void) {
 
   return numfailed;
 }
-
-int owl_list_regtest(void) {
-  int numfailed=0;
-  owl_list l;
-  intptr_t i;
-
-  printf("# BEGIN testing owl_list\n");
-
-  FAIL_UNLESS("create", 0 == owl_list_create(&l));
-  for(i=0;i<10;i++) {
-    FAIL_UNLESS("insert", 0 == owl_list_append_element(&l, (void*)i));
-  }
-
-  FAIL_UNLESS("size", 10 == owl_list_get_size(&l));
-
-  for(i=0;i<10;i++) {
-    FAIL_UNLESS("get", i == (intptr_t)owl_list_get_element(&l, i));
-  }
-
-  for(i=0;i<10;i++) {
-    FAIL_UNLESS("append tail", 0 == owl_list_append_element(&l, (void*)(10+i)));
-  }
-
-  FAIL_UNLESS("size", 20 == owl_list_get_size(&l));
-
-  for(i=10;i<20;i++) {
-    FAIL_UNLESS("get", i == (intptr_t)owl_list_get_element(&l, i));
-  }
-
-  for(i=9;i>=0;i--) {
-    FAIL_UNLESS("prepend", 0 == owl_list_prepend_element(&l, (void*)(-i)));
-  }
-
-  FAIL_UNLESS("size", 30 == owl_list_get_size(&l));
-
-  for(i=0;i<10;i++) {
-    FAIL_UNLESS("get beg", -i == (intptr_t)owl_list_get_element(&l, i));
-    FAIL_UNLESS("get mid", i == (intptr_t)owl_list_get_element(&l, 10+i));
-    FAIL_UNLESS("get end", 10+i == (intptr_t)owl_list_get_element(&l, 20+i));
-  }
-
-  printf("# END testing owl_list\n");
-
-  return numfailed;
-}
-
 
 int owl_fmtext_regtest(void) {
   int numfailed = 0;
@@ -839,5 +801,93 @@ int owl_smartfilter_regtest(void) {
 
   printf("# END testing owl_smartfilter (%d failures)\n", numfailed);
 
+  return numfailed;
+}
+
+int owl_history_regtest(void)
+{
+  int numfailed = 0;
+  int i;
+  owl_history h;
+
+  printf("# BEGIN testing owl_history\n");
+  owl_history_init(&h);
+
+  /* Operations on empty history. */
+  FAIL_UNLESS("prev NULL", owl_history_get_prev(&h) == NULL);
+  FAIL_UNLESS("next NULL", owl_history_get_next(&h) == NULL);
+  FAIL_UNLESS("untouched", !owl_history_is_touched(&h));
+
+  /* Insert a few records. */
+  owl_history_store(&h, "a", false);
+  owl_history_store(&h, "b", false);
+  owl_history_store(&h, "c", false);
+  owl_history_store(&h, "d", true);
+
+  /* Walk up and down the history a bit. */
+  FAIL_UNLESS("untouched", !owl_history_is_touched(&h));
+  FAIL_UNLESS("prev c", strcmp(owl_history_get_prev(&h), "c") == 0);
+  FAIL_UNLESS("touched", owl_history_is_touched(&h));
+  FAIL_UNLESS("next d", strcmp(owl_history_get_next(&h), "d") == 0);
+  FAIL_UNLESS("untouched", !owl_history_is_touched(&h));
+  FAIL_UNLESS("next NULL", owl_history_get_next(&h) == NULL);
+  FAIL_UNLESS("prev c", strcmp(owl_history_get_prev(&h), "c") == 0);
+  FAIL_UNLESS("prev b", strcmp(owl_history_get_prev(&h), "b") == 0);
+  FAIL_UNLESS("prev a", strcmp(owl_history_get_prev(&h), "a") == 0);
+  FAIL_UNLESS("prev NULL", owl_history_get_prev(&h) == NULL);
+
+  /* Now insert something. It should reset and blow away 'd'. */
+  owl_history_store(&h, "e", false);
+  FAIL_UNLESS("untouched", !owl_history_is_touched(&h));
+  FAIL_UNLESS("next NULL", owl_history_get_next(&h) == NULL);
+  FAIL_UNLESS("prev c", strcmp(owl_history_get_prev(&h), "c") == 0);
+  FAIL_UNLESS("touched", owl_history_is_touched(&h));
+  FAIL_UNLESS("next e", strcmp(owl_history_get_next(&h), "e") == 0);
+  FAIL_UNLESS("untouched", !owl_history_is_touched(&h));
+
+  /* Lines get de-duplicated on insert. */
+  owl_history_store(&h, "e", false);
+  owl_history_store(&h, "e", false);
+  owl_history_store(&h, "e", false);
+  FAIL_UNLESS("prev c", strcmp(owl_history_get_prev(&h), "c") == 0);
+  FAIL_UNLESS("next e", strcmp(owl_history_get_next(&h), "e") == 0);
+
+  /* But a partial is not deduplicated, as it'll go away soon. */
+  owl_history_store(&h, "e", true);
+  FAIL_UNLESS("prev e", strcmp(owl_history_get_prev(&h), "e") == 0);
+  FAIL_UNLESS("prev c", strcmp(owl_history_get_prev(&h), "c") == 0);
+  FAIL_UNLESS("next e", strcmp(owl_history_get_next(&h), "e") == 0);
+  FAIL_UNLESS("next e", strcmp(owl_history_get_next(&h), "e") == 0);
+
+  /* Reset moves to the front... */
+  owl_history_store(&h, "f", true);
+  FAIL_UNLESS("prev e", strcmp(owl_history_get_prev(&h), "e") == 0);
+  FAIL_UNLESS("prev c", strcmp(owl_history_get_prev(&h), "c") == 0);
+  owl_history_reset(&h);
+  FAIL_UNLESS("untouched", !owl_history_is_touched(&h));
+  /* ...and destroys any pending partial entry... */
+  FAIL_UNLESS("prev c", strcmp(owl_history_get_prev(&h), "c") == 0);
+  FAIL_UNLESS("prev b", strcmp(owl_history_get_prev(&h), "b") == 0);
+  /* ...but not non-partial ones. */
+  owl_history_reset(&h);
+  FAIL_UNLESS("untouched", !owl_history_is_touched(&h));
+
+  /* Finally, check we are bounded by OWL_HISTORYSIZE. */
+  for (i = 0; i < OWL_HISTORYSIZE; i++) {
+    char *string = g_strdup_printf("mango%d", i);
+    owl_history_store(&h, string, false);
+    g_free(string);
+  }
+  /* The OWL_HISTORYSIZE'th prev gets NULL. */
+  for (i = OWL_HISTORYSIZE - 2; i >= 0; i--) {
+    char *string = g_strdup_printf("mango%d", i);
+    FAIL_UNLESS("prev mango_N", strcmp(owl_history_get_prev(&h), string) == 0);
+    g_free(string);
+  }
+  FAIL_UNLESS("prev NULL", owl_history_get_prev(&h) == NULL);
+
+  owl_history_cleanup(&h);
+
+  printf("# END testing owl_history (%d failures)\n", numfailed);
   return numfailed;
 }

@@ -34,7 +34,7 @@ const char *skiptokens(const char *buff, int n) {
 /* Return a "nice" version of the path.  Tilde expansion is done, and
  * duplicate slashes are removed.  Caller must free the return.
  */
-char *owl_util_makepath(const char *in)
+CALLER_OWN char *owl_util_makepath(const char *in)
 {
   int i, j, x;
   char *out, user[MAXPATHLEN];
@@ -97,18 +97,21 @@ char *owl_util_makepath(const char *in)
   return(out);
 }
 
-void owl_parse_delete(char **argv, int argc)
+void owl_ptr_array_free(GPtrArray *array, GDestroyNotify element_free_func)
 {
-  g_strfreev(argv);
+  /* TODO: when we move to requiring glib 2.22+, use
+   * g_ptr_array_new_with_free_func instead. */
+  if (element_free_func)
+    g_ptr_array_foreach(array, (GFunc)element_free_func, NULL);
+  g_ptr_array_free(array, true);
 }
 
-char **owl_parseline(const char *line, int *argc)
+/* Break a command line up into argv, argc.  The caller must free
+   the returned values with g_strfreev.  If there is an error argc will be set
+   to -1, argv will be NULL and the caller does not need to free anything. The
+   returned vector is NULL-terminated. */
+CALLER_OWN char **owl_parseline(const char *line, int *argc)
 {
-  /* break a command line up into argv, argc.  The caller must free
-     the returned values.  If there is an error argc will be set to
-     -1, argv will be NULL and the caller does not need to free
-     anything. The returned vector is NULL-terminated. */
-
   GPtrArray *argv;
   int i, len, between=1;
   GString *curarg;
@@ -118,7 +121,7 @@ char **owl_parseline(const char *line, int *argc)
   len=strlen(line);
   curarg = g_string_new("");
   quote='\0';
-  *argc=0;
+  if (argc) *argc=0;
   for (i=0; i<len+1; i++) {
     /* find the first real character */
     if (between) {
@@ -169,17 +172,14 @@ char **owl_parseline(const char *line, int *argc)
     g_string_append_c(curarg, line[i]);
   }
 
-  *argc = argv->len;
+  if (argc) *argc = argv->len;
   g_ptr_array_add(argv, NULL);
   g_string_free(curarg, true);
 
   /* check for unbalanced quotes */
   if (quote!='\0') {
-    /* TODO: when we move to requiring glib 2.22+, use
-     * g_ptr_array_new_with_free_func. */
-    g_ptr_array_foreach(argv, (GFunc)g_free, NULL);
-    g_ptr_array_free(argv, true);
-    *argc = -1;
+    owl_ptr_array_free(argv, g_free);
+    if (argc) *argc = -1;
     return(NULL);
   }
 
@@ -220,7 +220,7 @@ void owl_string_append_quoted_arg(GString *buf, const char *arg)
 
 /*
  * Appends 'tmpl' to 'buf', replacing any instances of '%q' with arguments from
- * the varargs provided, quoting them to be safe for placing in a barnowl
+ * the varargs provided, quoting them to be safe for placing in a BarnOwl
  * command line.
  */
 void owl_string_appendf_quoted(GString *buf, const char *tmpl, ...)
@@ -250,7 +250,7 @@ void owl_string_vappendf_quoted(GString *buf, const char *tmpl, va_list ap)
   g_string_append(buf, last);
 }
 
-char *owl_string_build_quoted(const char *tmpl, ...)
+CALLER_OWN char *owl_string_build_quoted(const char *tmpl, ...)
 {
   GString *buf = g_string_new("");
   va_list ap;
@@ -262,7 +262,7 @@ char *owl_string_build_quoted(const char *tmpl, ...)
 
 /* Returns a quoted version of arg suitable for placing in a
  * command-line. Result should be freed with g_free. */
-char *owl_arg_quote(const char *arg)
+CALLER_OWN char *owl_arg_quote(const char *arg)
 {
   GString *buf = g_string_new("");;
   owl_string_append_quoted_arg(buf, arg);
@@ -270,7 +270,7 @@ char *owl_arg_quote(const char *arg)
 }
 
 /* caller must free the return */
-char *owl_util_minutes_to_timestr(int in)
+CALLER_OWN char *owl_util_minutes_to_timestr(int in)
 {
   int days, hours;
   long run;
@@ -336,7 +336,7 @@ const char *owl_util_color_to_string(int color)
 }
 
 /* Get the default tty name.  Caller must free the return */
-char *owl_util_get_default_tty(void)
+CALLER_OWN char *owl_util_get_default_tty(void)
 {
   const char *tmp;
   char *out;
@@ -358,7 +358,7 @@ char *owl_util_get_default_tty(void)
 /* strip leading and trailing new lines.  Caller must free the
  * return.
  */
-char *owl_util_stripnewlines(const char *in)
+CALLER_OWN char *owl_util_stripnewlines(const char *in)
 {
   
   char  *tmp, *ptr1, *ptr2, *out;
@@ -389,7 +389,7 @@ char *owl_util_stripnewlines(const char *in)
  *
  * Error conditions are the same as g_file_read_link.
  */
-gchar *owl_util_recursive_resolve_link(const char *filename)
+CALLER_OWN gchar *owl_util_recursive_resolve_link(const char *filename)
 {
   gchar *last_path = g_strdup(filename);
   GError *err = NULL;
@@ -460,7 +460,7 @@ int owl_util_file_deleteline(const char *filename, const char *line, int backup)
 		       actual_filename, strerror(errno));
     g_free(newfile);
     fclose(old);
-    free(actual_filename);
+    g_free(actual_filename);
     return -1;
   }
 
@@ -471,7 +471,7 @@ int owl_util_file_deleteline(const char *filename, const char *line, int backup)
     fclose(new);
     g_free(newfile);
     fclose(old);
-    free(actual_filename);
+    g_free(actual_filename);
     return -1;
   }
 
@@ -516,7 +516,7 @@ int owl_util_file_deleteline(const char *filename, const char *line, int backup)
    leading `un' or trailing `.d'.
    The caller is responsible for freeing the allocated string.
 */
-char * owl_util_baseclass(const char * class)
+CALLER_OWN char *owl_util_baseclass(const char *class)
 {
   char *start, *end;
 
@@ -551,8 +551,8 @@ const char * owl_get_bindir(void)
 }
 
 /* Strips format characters from a valid utf-8 string. Returns the
-   empty string if 'in' does not validate. */
-char * owl_strip_format_chars(const char *in)
+   empty string if 'in' does not validate.  Caller must free the return. */
+CALLER_OWN char *owl_strip_format_chars(const char *in)
 {
   char *r;
   if (g_utf8_validate(in, -1, NULL)) {
@@ -589,8 +589,9 @@ char * owl_strip_format_chars(const char *in)
  * the caller to specify an alternative in the future. We also strip
  * out characters in Unicode Plane 16, as we use that plane internally
  * for formatting.
+ * Caller must free the return.
  */
-char * owl_validate_or_convert(const char *in)
+CALLER_OWN char *owl_validate_or_convert(const char *in)
 {
   if (g_utf8_validate(in, -1, NULL)) {
     return owl_strip_format_chars(in);
@@ -604,8 +605,9 @@ char * owl_validate_or_convert(const char *in)
 /*
  * Validate 'in' as UTF-8, and either return a copy of it, or an empty
  * string if it is invalid utf-8.
+ * Caller must free the return.
  */
-char * owl_validate_utf8(const char *in)
+CALLER_OWN char *owl_validate_utf8(const char *in)
 {
   char *out;
   if (g_utf8_validate(in, -1, NULL)) {
@@ -637,7 +639,8 @@ int owl_util_can_break_after(gunichar c)
   return 0;
 }
 
-char *owl_escape_highbit(const char *str)
+/* caller must free the return */
+CALLER_OWN char *owl_escape_highbit(const char *str)
 {
   GString *out = g_string_new("");
   unsigned char c;
@@ -700,7 +703,7 @@ int owl_getline_chomp(char **s, FILE *fp)
 }
 
 /* Read the rest of the input available in fp into a string. */
-char *owl_slurp(FILE *fp)
+CALLER_OWN char *owl_slurp(FILE *fp)
 {
   char *buf = NULL;
   char *p;
@@ -718,6 +721,17 @@ char *owl_slurp(FILE *fp)
   p[count] = 0;
 
   return buf;
+}
+
+int owl_util_get_colorpairs(void) {
+#ifndef NCURSES_EXT_COLORS
+  /* Without ext-color support (an ABI change), ncurses only supports 256
+   * different color pairs. However, it gives us a larger number even if your
+   * ncurses is compiled without ext-color. */
+  return MIN(COLOR_PAIRS, 256);
+#else
+  return COLOR_PAIRS;
+#endif
 }
 
 gulong owl_dirty_window_on_signal(owl_window *w, gpointer sender, const gchar *detailed_signal)

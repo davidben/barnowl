@@ -7,41 +7,43 @@
 
 /* fn is "char *foo(int argc, const char *const *argv, const char *buff)" */
 #define OWLCMD_ARGS(name, fn, ctx, summary, usage, description) \
-        { name, summary, usage, description, ctx, \
+        { g_strdup(name), g_strdup(summary), g_strdup(usage), g_strdup(description), ctx, \
           NULL, fn, NULL, NULL, NULL, NULL, NULL, NULL }
 
 /* fn is "void foo(void)" */
 #define OWLCMD_VOID(name, fn, ctx, summary, usage, description) \
-        { name, summary, usage, description, ctx, \
+        { g_strdup(name), g_strdup(summary), g_strdup(usage), g_strdup(description), ctx, \
           NULL, NULL, fn, NULL, NULL, NULL, NULL, NULL }
 
 /* fn is "void foo(int)" */
 #define OWLCMD_INT(name, fn, ctx, summary, usage, description) \
-        { name, summary, usage, description, ctx, \
+        { g_strdup(name), g_strdup(summary), g_strdup(usage), g_strdup(description), ctx, \
           NULL, NULL, NULL, fn, NULL, NULL, NULL, NULL }
 
 #define OWLCMD_ALIAS(name, actualname) \
-        { name, OWL_CMD_ALIAS_SUMMARY_PREFIX actualname, "", "", OWL_CTX_ANY, \
-          actualname, NULL, NULL, NULL, NULL, NULL, NULL, NULL }
+        { g_strdup(name), g_strdup(OWL_CMD_ALIAS_SUMMARY_PREFIX actualname), g_strdup(""), g_strdup(""), OWL_CTX_ANY, \
+          g_strdup(actualname), NULL, NULL, NULL, NULL, NULL, NULL, NULL }
 
 /* fn is "char *foo(void *ctx, int argc, const char *const *argv, const char *buff)" */
 #define OWLCMD_ARGS_CTX(name, fn, ctx, summary, usage, description) \
-        { name, summary, usage, description, ctx, \
+        { g_strdup(name), g_strdup(summary), g_strdup(usage), g_strdup(description), ctx, \
           NULL, NULL, NULL, NULL, ((char*(*)(void*,int,const char*const *,const char*))fn), NULL, NULL, NULL }
 
 /* fn is "void foo(void)" */
 #define OWLCMD_VOID_CTX(name, fn, ctx, summary, usage, description) \
-        { name, summary, usage, description, ctx, \
+        { g_strdup(name), g_strdup(summary), g_strdup(usage), g_strdup(description), ctx, \
           NULL, NULL, NULL, NULL, NULL, ((void(*)(void*))(fn)), NULL, NULL }
 
 /* fn is "void foo(int)" */
 #define OWLCMD_INT_CTX(name, fn, ctx, summary, usage, description) \
-        { name, summary, usage, description, ctx, \
+        { g_strdup(name), g_strdup(summary), g_strdup(usage), g_strdup(description), ctx, \
           NULL, NULL, NULL, NULL, NULL, NULL, ((void(*)(void*,int))fn), NULL }
 
 
-const owl_cmd commands_to_init[]
-  = {
+void owl_cmd_add_defaults(owl_cmddict *cd)
+{
+  owl_cmd commands_to_init[] = {
+
   OWLCMD_ARGS("zlog", owl_command_zlog, OWL_CTX_ANY,
 	      "send a login or logout notification",
 	      "zlog in [tty]\nzlog out",
@@ -280,20 +282,20 @@ const owl_cmd commands_to_init[]
 
   OWLCMD_ARGS("punt", owl_command_punt, OWL_CTX_ANY,
 	      "suppress an arbitrary filter",
-	      "punt <filter-text>",
-	      "punt <filter-text (multiple words)>\n"
+	      "punt <filter-name>\n"
+	      "punt <filter-text (multiple words)>",
 	      "The punt command will suppress messages to the specified\n"
 	      "filter\n\n"
 	      "SEE ALSO:  unpunt, zpunt, show zpunts\n"),
 
   OWLCMD_ARGS("unpunt", owl_command_unpunt, OWL_CTX_ANY,
 	      "remove an entry from the punt list",
-	      "zpunt <filter-text>\n"
-	      "zpunt <filter-text>\n"
-	      "zpunt <number>\n",
+	      "unpunt <number>\n"
+	      "unpunt <filter-name>\n"
+	      "unpunt <filter-text (multiple words)>",
 	      "The unpunt command will remove an entry from the puntlist.\n"
-	      "The first two forms correspond to the first two forms of the :punt\n"
-	      "command. The latter allows you to remove a specific entry from the\n"
+	      "The last two forms correspond to the two forms of the :punt\n"
+	      "command. The first allows you to remove a specific entry from\n"
 	      "the list (see :show zpunts)\n\n"
 	      "SEE ALSO:  punt, zpunt, zunpunt, show zpunts\n"),
 
@@ -653,7 +655,6 @@ const owl_cmd commands_to_init[]
 	      "show styles\n"
 	      "show subscriptions / show subs\n"
 	      "show terminal\n"
-	      "show timers\n"
 	      "show variables\n"
 	      "show variable <variable>\n"
 	      "show version\n"
@@ -1026,7 +1027,13 @@ const owl_cmd commands_to_init[]
   /* This line MUST be last! */
   { NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL }
 
-};
+  };
+
+  owl_cmddict_add_from_list(cd, commands_to_init);
+  owl_cmd *cmd;
+  for (cmd = commands_to_init; cmd->name != NULL; cmd++)
+    owl_cmd_cleanup(cmd);
+}
 
 void owl_command_info(void)
 {
@@ -1204,7 +1211,7 @@ char *owl_command_startup(int argc, const char *const *argv, const char *buff)
 
   ptr = skiptokens(buff, 1);
 
-  owl_function_command(ptr);
+  owl_function_command_norv(ptr);
   owl_function_addstartup(ptr);
 
   return(NULL);
@@ -1277,7 +1284,7 @@ char *owl_command_next(int argc, const char *const *argv, const char *buff)
     }
   }
   owl_function_nextmsg_full(filter, skip_deleted, last_if_none);
-  if (filter) g_free(filter);
+  g_free(filter);
   return(NULL);
 }
 
@@ -1307,7 +1314,7 @@ char *owl_command_prev(int argc, const char *const *argv, const char *buff)
     }
   }
   owl_function_prevmsg_full(filter, skip_deleted, first_if_none);
-  if (filter) g_free(filter);
+  g_free(filter);
   return(NULL);
 }
 
@@ -1355,7 +1362,7 @@ done:
   return NULL;
 }
 
-char *owl_command_smartfilter(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_smartfilter(int argc, const char *const *argv, const char *buff)
 {
   char *filtname = NULL;
 
@@ -1395,7 +1402,7 @@ void owl_command_redisplay(void)
   owl_function_full_redisplay();
 }
 
-char *owl_command_get_shift(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_get_shift(int argc, const char *const *argv, const char *buff)
 {
   if(argc != 1)
   {
@@ -1603,7 +1610,7 @@ char *owl_command_unset(int argc, const char *const *argv, const char *buff)
 char *owl_command_print(int argc, const char *const *argv, const char *buff)
 {
   const char *var;
-  char valbuff[1024];
+  char *value;
 
   if (argc==1) {
     owl_function_printallvars();
@@ -1615,9 +1622,10 @@ char *owl_command_print(int argc, const char *const *argv, const char *buff)
 
   var=argv[1];
     
-  if (0 == owl_variable_get_tostring(owl_global_get_vardict(&g), 
-				     var, valbuff, 1024)) {
-    owl_function_makemsg("%s = '%s'", var, valbuff);
+  value = owl_variable_get_tostring(owl_global_get_vardict(&g), var);
+  if (value) {
+    owl_function_makemsg("%s = '%s'", var, value);
+    g_free(value);
   } else {
     owl_function_makemsg("Unknown variable '%s'.", var);
   }
@@ -1625,37 +1633,37 @@ char *owl_command_print(int argc, const char *const *argv, const char *buff)
 }
 
 
-char *owl_command_exec(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_exec(int argc, const char *const *argv, const char *buff)
 {
   return owl_function_exec(argc, argv, buff, OWL_OUTPUT_RETURN);
 }
 
-char *owl_command_pexec(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_pexec(int argc, const char *const *argv, const char *buff)
 {
   return owl_function_exec(argc, argv, buff, OWL_OUTPUT_POPUP);
 }
 
-char *owl_command_aexec(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_aexec(int argc, const char *const *argv, const char *buff)
 {
   return owl_function_exec(argc, argv, buff, OWL_OUTPUT_ADMINMSG);
 }
 
-char *owl_command_perl(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_perl(int argc, const char *const *argv, const char *buff)
 {
   return owl_function_perl(argc, argv, buff, OWL_OUTPUT_RETURN);
 }
 
-char *owl_command_pperl(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_pperl(int argc, const char *const *argv, const char *buff)
 {
   return owl_function_perl(argc, argv, buff, OWL_OUTPUT_POPUP);
 }
 
-char *owl_command_aperl(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_aperl(int argc, const char *const *argv, const char *buff)
 {
   return owl_function_perl(argc, argv, buff, OWL_OUTPUT_ADMINMSG);
 }
 
-char *owl_command_multi(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_multi(int argc, const char *const *argv, const char *buff)
 {
   char *lastrv = NULL, *newbuff;
   char **commands;
@@ -1679,9 +1687,7 @@ char *owl_command_multi(int argc, const char *const *argv, const char *buff)
   }
   commands = g_strsplit_set(newbuff, ";", 0);
   for (i = 0; commands[i] != NULL; i++) {
-    if (lastrv) {
-      g_free(lastrv);
-    }
+    g_free(lastrv);
     lastrv = owl_function_command(commands[i]);
   }
   g_free(newbuff);
@@ -2208,8 +2214,6 @@ char *owl_command_show(int argc, const char *const *argv, const char *buff)
     owl_function_show_colors();
   } else if (!strcmp(argv[1], "styles")) {
     owl_function_show_styles();
-  } else if (!strcmp(argv[1], "timers")) {
-    owl_function_show_timers();
   } else if (!strcmp(argv[1], "subs") || !strcmp(argv[1], "subscriptions")) {
     owl_function_getsubs();
   } else if (!strcmp(argv[1], "terminal") || !strcmp(argv[1], "term")) {
@@ -2445,9 +2449,7 @@ char *owl_command_unpunt(int argc, const char *const *argv, const char *buff)
 
 void owl_command_punt_unpunt(int argc, const char *const * argv, const char *buff, int unpunt)
 {
-  owl_list * fl;
-  owl_filter * f;
-  char * text;
+  GPtrArray * fl;
   int i;
 
   fl = owl_global_get_puntlist(&g);
@@ -2457,20 +2459,18 @@ void owl_command_punt_unpunt(int argc, const char *const * argv, const char *buf
     /* Handle :unpunt <number> */
     if(unpunt && (i=atoi(argv[1])) !=0) {
       i--;      /* Accept 1-based indexing */
-      if(i < owl_list_get_size(fl)) {
-        f = owl_list_get_element(fl, i);
-        owl_list_remove_element(fl, i);
-        owl_filter_delete(f);
+      if (i < fl->len) {
+        owl_filter_delete(g_ptr_array_remove_index(fl, i));
         return;
       } else {
-        owl_function_error("No such filter number: %d", i+1);
+        owl_function_makemsg("No such filter number: %d.", i+1);
       }
     }
-    text = owl_string_build_quoted("filter %q", argv[1]);
-    owl_function_punt(text, unpunt);
-    g_free(text);
+    const char *filter[] = {"filter", argv[1]};
+    owl_function_punt(2, filter, unpunt);
   } else {
-    owl_function_punt(skiptokens(buff, 1), unpunt);
+    /* Pass in argv[1]..argv[argc-1]. */
+    owl_function_punt(argc - 1, argv + 1, unpunt);
   }
 }
 
@@ -2489,16 +2489,11 @@ char *owl_command_getview(int argc, const char *const *argv, const char *buff)
 
 char *owl_command_getvar(int argc, const char *const *argv, const char *buff)
 {
-  char tmpbuff[1024];
   if (argc != 2) {
     owl_function_makemsg("Wrong number of arguments for %s", argv[0]);
     return NULL;
   }
-  if (owl_variable_get_tostring(owl_global_get_vardict(&g), 
-				argv[1], tmpbuff, 1024)) {
-    return NULL;
-  }
-  return g_strdup(tmpbuff); 
+  return owl_variable_get_tostring(owl_global_get_vardict(&g), argv[1]);
 }
 
 char *owl_command_getfilter(int argc, const char *const *argv, const char *buf)
@@ -2578,7 +2573,7 @@ char *owl_command_aimlogout(int argc, const char *const *argv, const char *buff)
   return(NULL);
 }
 
-char *owl_command_getstyle(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_getstyle(int argc, const char *const *argv, const char *buff)
 {
   const char *stylename;
   if (argc != 1) {
@@ -2616,13 +2611,12 @@ char *owl_command_add_cmd_history(int argc, const char *const *argv, const char 
 
   ptr = skiptokens(buff, 1);
   hist = owl_global_get_cmd_history(&g);
-  owl_history_store(hist, ptr);
-  owl_history_reset(hist);
+  owl_history_store(hist, ptr, false);
   /* owl_function_makemsg("History '%s' stored successfully", ptr+1); */
   return NULL;
 }
 
-char *owl_command_with_history(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_with_history(int argc, const char *const *argv, const char *buff)
 {
   owl_history *hist;
   const char *ptr;
@@ -2639,8 +2633,7 @@ char *owl_command_with_history(int argc, const char *const *argv, const char *bu
   }
 
   hist = owl_global_get_cmd_history(&g);
-  owl_history_store(hist, ptr);
-  owl_history_reset(hist);
+  owl_history_store(hist, ptr, false);
   return owl_function_command(ptr);
 }
 /*********************************************************************/
@@ -2654,10 +2647,8 @@ void owl_command_edit_cancel(owl_editwin *e)
   owl_function_makemsg("Command cancelled.");
 
   hist = owl_editwin_get_history(e);
-  if (hist) {
-    owl_history_store(hist, owl_editwin_get_text(e));
-    owl_history_reset(hist);
-  }
+  if (hist)
+    owl_history_store(hist, owl_editwin_get_text(e), false);
 
   owl_global_pop_context(&g);
 }
@@ -2670,10 +2661,8 @@ void owl_command_edit_history_prev(owl_editwin *e)
   hist=owl_editwin_get_history(e);
   if (!hist)
     return;
-  if (!owl_history_is_touched(hist)) {
-    owl_history_store(hist, owl_editwin_get_text(e));
-    owl_history_set_partial(hist);
-  }
+  if (!owl_history_is_touched(hist))
+    owl_history_store(hist, owl_editwin_get_text(e), true);
   ptr=owl_history_get_prev(hist);
   if (ptr) {
     owl_editwin_clear(e);
@@ -2711,10 +2700,8 @@ void owl_command_edit_done(owl_editwin *e)
 {
   owl_history *hist=owl_editwin_get_history(e);
 
-  if (hist) {
-    owl_history_store(hist, owl_editwin_get_text(e));
-    owl_history_reset(hist);
-  }
+  if (hist)
+    owl_history_store(hist, owl_editwin_get_text(e), false);
 
   /* Take a reference to the editwin, so that it survives the pop
    * context. TODO: We should perhaps refcount or otherwise protect

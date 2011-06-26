@@ -8,27 +8,16 @@
 #include <time.h>
 #include "owl.h"
 
-#ifndef MAXHOSTNAMELEN
-#define MAXHOSTNAMELEN 256
-#endif
-
 static void _owl_global_init_windows(owl_global *g);
 
 void owl_global_init(owl_global *g) {
-  struct hostent *hent;
-  char hostname[MAXHOSTNAMELEN];
   char *cd;
   const char *homedir;
 
   g_type_init();
+  g_thread_init(NULL);
 
-  gethostname(hostname, MAXHOSTNAMELEN);
-  hent=gethostbyname(hostname);
-  if (!hent) {
-    g->thishost=g_strdup("localhost");
-  } else {
-    g->thishost=g_strdup(hent->h_name);
-  }
+  owl_select_init();
 
   g->lines=LINES;
   g->cols=COLS;
@@ -54,17 +43,13 @@ void owl_global_init(owl_global *g) {
 
   owl_dict_create(&(g->filters));
   g->filterlist = NULL;
-  owl_list_create(&(g->puntlist));
+  g->puntlist = g_ptr_array_new();
   g->messagequeue = g_queue_new();
   owl_dict_create(&(g->styledict));
   g->curmsg_vert_offset=0;
   g->resizepending=0;
   g->direction=OWL_DIRECTION_DOWNWARDS;
   g->zaway=0;
-  if (has_colors()) {
-    g->hascolors=1;
-  }
-  g->colorpairs=COLOR_PAIRS;
   owl_fmtext_init_colorpair_mgr(&(g->cpmgr));
   g->debug=OWL_DEBUG;
   owl_regex_init(&g->search_re);
@@ -76,7 +61,6 @@ void owl_global_init(owl_global *g) {
   owl_global_set_no_have_config(g);
   owl_history_init(&(g->msghist));
   owl_history_init(&(g->cmdhist));
-  owl_history_set_norepeats(&(g->cmdhist));
   g->nextmsgid=0;
 
   /* Fill in some variables which don't have constant defaults */
@@ -107,7 +91,6 @@ void owl_global_init(owl_global *g) {
   owl_global_set_no_doaimevents(g);
 
   owl_errqueue_init(&(g->errqueue));
-  g->got_err_signal=0;
 
   owl_zbuddylist_create(&(g->zbuddies));
 
@@ -115,12 +98,11 @@ void owl_global_init(owl_global *g) {
   g->pseudologin_notify = 0;
 
   owl_message_init_fmtext_cache();
-  owl_list_create(&(g->io_dispatch_list));
-  owl_list_create(&(g->psa_list));
-  g->timerlist = NULL;
-  g->interrupted = FALSE;
   g->kill_buffer = NULL;
   g->fmtext_seq = 0;
+
+  g->interrupt_count = 0;
+  g->interrupt_lock = g_mutex_new();
 }
 
 static void _owl_global_init_windows(owl_global *g)
@@ -188,7 +170,8 @@ void owl_global_push_context_obj(owl_global *g, owl_context *c)
 
 /* Pops the current context from the context stack and returns it. Caller is
  * responsible for freeing. */
-owl_context *owl_global_pop_context_no_delete(owl_global *g) {
+CALLER_OWN owl_context *owl_global_pop_context_no_delete(owl_global *g)
+{
   owl_context *c;
   if (!g->context_stack)
     return NULL;
@@ -364,7 +347,7 @@ void owl_global_set_typwin_inactive(owl_global *g) {
 /* resize */
 
 void owl_global_set_resize_pending(owl_global *g) {
-  g->resizepending=1;
+  g->resizepending = true;
 }
 
 const char *owl_global_get_homedir(const owl_global *g) {
@@ -464,7 +447,7 @@ void owl_global_get_terminal_size(int *lines, int *cols) {
 void owl_global_check_resize(owl_global *g) {
   /* resize the screen.  If lines or cols is 0 use the terminal size */
   if (!g->resizepending) return;
-  g->resizepending = 0;
+  g->resizepending = false;
 
   owl_global_get_terminal_size(&g->lines, &g->cols);
   owl_window_resize(owl_window_get_screen(), g->lines, g->cols);
@@ -501,11 +484,6 @@ time_t owl_global_get_idletime(const owl_global *g) {
   return(time(NULL)-g->lastinputtime);
 }
 
-const char *owl_global_get_hostname(const owl_global *g) {
-  if (g->thishost) return(g->thishost);
-  return("");
-}
-
 /* viewwin */
 
 owl_viewwin *owl_global_get_viewwin(owl_global *g) {
@@ -530,7 +508,7 @@ void owl_global_set_curmsg_vert_offset(owl_global *g, int i) {
 /* startup args */
 
 void owl_global_set_startupargs(owl_global *g, int argc, char **argv) {
-  if (g->startupargs) g_free(g->startupargs);
+  g_free(g->startupargs);
   g->startupargs = g_strjoinv(" ", argv);
 }
 
@@ -616,39 +594,25 @@ owl_message *owl_global_get_current_message(owl_global *g) {
   return owl_view_iterator_get_message(owl_global_get_curmsg(g));
 }
 
-/* has colors */
-
-int owl_global_get_hascolors(const owl_global *g) {
-  if (g->hascolors) return(1);
-  return(0);
-}
-
-/* color pairs */
-
-int owl_global_get_colorpairs(const owl_global *g) {
-  return(g->colorpairs);
-}
-
 owl_colorpair_mgr *owl_global_get_colorpair_mgr(owl_global *g) {
   return(&(g->cpmgr));
 }
 
 /* puntlist */
 
-owl_list *owl_global_get_puntlist(owl_global *g) {
-  return(&(g->puntlist));
+GPtrArray *owl_global_get_puntlist(owl_global *g) {
+  return g->puntlist;
 }
 
 int owl_global_message_is_puntable(owl_global *g, const owl_message *m) {
-  const owl_list *pl;
-  int i, j;
+  const GPtrArray *pl;
+  int i;
 
-  pl=owl_global_get_puntlist(g);
-  j=owl_list_get_size(pl);
-  for (i=0; i<j; i++) {
-    if (owl_filter_message_match(owl_list_get_element(pl, i), m)) return(1);
+  pl = owl_global_get_puntlist(g);
+  for (i = 0; i < pl->len; i++) {
+    if (owl_filter_message_match(pl->pdata[i], m)) return 1;
   }
-  return(0);
+  return 0;
 }
 
 int owl_global_should_followlast(owl_global *g) {
@@ -737,20 +701,26 @@ void owl_global_set_aimnologgedin(owl_global *g)
   g->aim_loggedin=0;
 }
 
-int owl_global_is_doaimevents(const owl_global *g)
+bool owl_global_is_doaimevents(const owl_global *g)
 {
-  if (g->aim_doprocessing) return(1);
-  return(0);
+  return g->aim_event_source != NULL;
 }
 
 void owl_global_set_doaimevents(owl_global *g)
 {
-  g->aim_doprocessing=1;
+  if (g->aim_event_source)
+    return;
+  g->aim_event_source = owl_aim_event_source_new(owl_global_get_aimsess(g));
+  g_source_attach(g->aim_event_source, NULL);
 }
 
 void owl_global_set_no_doaimevents(owl_global *g)
 {
-  g->aim_doprocessing=0;
+  if (!g->aim_event_source)
+    return;
+  g_source_destroy(g->aim_event_source);
+  g_source_unref(g->aim_event_source);
+  g->aim_event_source = NULL;
 }
 
 aim_session_t *owl_global_get_aimsess(owl_global *g)
@@ -779,7 +749,7 @@ void owl_global_messagequeue_addmsg(owl_global *g, owl_message *m)
  * is empty.  The caller should free the message after using it, if
  * necessary.
  */
-owl_message *owl_global_messagequeue_popmsg(owl_global *g)
+CALLER_OWN owl_message *owl_global_messagequeue_popmsg(owl_global *g)
 {
   owl_message *out;
 
@@ -808,10 +778,9 @@ owl_style *owl_global_get_style_by_name(const owl_global *g, const char *name)
   return owl_dict_find_element(&(g->styledict), name);
 }
 
-/* creates a list and fills it in with keys.  duplicates the keys, 
- * so they will need to be freed by the caller. */
-int owl_global_get_style_names(const owl_global *g, owl_list *l) {
-  return owl_dict_get_keys(&(g->styledict), l);
+CALLER_OWN GPtrArray *owl_global_get_style_names(const owl_global *g)
+{
+  return owl_dict_get_keys(&g->styledict);
 }
 
 void owl_global_add_style(owl_global *g, owl_style *s)
@@ -870,30 +839,6 @@ owl_errqueue *owl_global_get_errqueue(owl_global *g)
   return(&(g->errqueue));
 }
 
-void owl_global_set_errsignal(owl_global *g, int signum, siginfo_t *siginfo)
-{
-  g->got_err_signal = signum;
-  if (siginfo) {
-    g->err_signal_info = *siginfo;
-  } else {
-    siginfo_t si;
-    memset(&si, 0, sizeof(si));
-    g->err_signal_info = si;
-  }
-}
-
-int owl_global_get_errsignal_and_clear(owl_global *g, siginfo_t *siginfo)
-{
-  int signum;
-  if (siginfo && g->got_err_signal) {
-    *siginfo = g->err_signal_info;
-  } 
-  signum = g->got_err_signal;
-  g->got_err_signal = 0;
-  return signum;
-}
-
-
 owl_zbuddylist *owl_global_get_zephyr_buddylist(owl_global *g)
 {
   return(&(g->zbuddies));
@@ -917,33 +862,6 @@ void owl_global_set_pseudologin_notify(owl_global *g, int notify)
 struct termios *owl_global_get_startup_tio(owl_global *g)
 {
   return(&(g->startup_tio));
-}
-
-owl_list *owl_global_get_io_dispatch_list(owl_global *g)
-{
-  return &(g->io_dispatch_list);
-}
-
-owl_list *owl_global_get_psa_list(owl_global *g)
-{
-  return &(g->psa_list);
-}
-
-GList **owl_global_get_timerlist(owl_global *g)
-{
-  return &(g->timerlist);
-}
-
-int owl_global_is_interrupted(const owl_global *g) {
-  return g->interrupted;
-}
-
-void owl_global_set_interrupted(owl_global *g) {
-  g->interrupted = 1;
-}
-
-void owl_global_unset_interrupted(owl_global *g) {
-  g->interrupted = 0;
 }
 
 void owl_global_setup_default_filters(owl_global *g)
@@ -1020,10 +938,30 @@ FILE *owl_global_get_debug_file_handle(owl_global *g) {
   return g->debug_file;
 }
 
-char *owl_global_get_kill_buffer(owl_global *g) {
+const char *owl_global_get_kill_buffer(owl_global *g) {
   return g->kill_buffer;
 }
 
-void owl_global_set_kill_buffer(owl_global *g,char *kill) {
-  g->kill_buffer = kill;
+void owl_global_set_kill_buffer(owl_global *g, const char *kill, int len) {
+  g_free(g->kill_buffer);
+  g->kill_buffer = g_strndup(kill, len);
+}
+
+void owl_global_add_interrupt(owl_global *g) {
+  /* TODO: This can almost certainly be done with atomic
+   * operations. Whatever. */
+  g_mutex_lock(g->interrupt_lock);
+  g->interrupt_count++;
+  g_mutex_unlock(g->interrupt_lock);
+}
+
+bool owl_global_take_interrupt(owl_global *g) {
+  bool ans = false;
+  g_mutex_lock(g->interrupt_lock);
+  if (g->interrupt_count > 0) {
+    ans = true;
+    g->interrupt_count--;
+  }
+  g_mutex_unlock(g->interrupt_lock);
+  return ans;
 }

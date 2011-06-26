@@ -4,6 +4,16 @@
 #include <ctype.h>
 #include <sys/param.h>
 
+typedef struct _owl_log_entry { /* noproto */
+  char *filename;
+  char *message;
+} owl_log_entry;
+
+
+static GMainContext *log_context;
+static GMainLoop *log_loop;
+static GThread *logging_thread;
+
 /* This is now the one function that should be called to log a
  * message.  It will do all the work necessary by calling the other
  * functions in this file as necessary.
@@ -69,68 +79,143 @@ int owl_log_shouldlog_message(const owl_message *m) {
   return(1);
 }
 
-void owl_log_zephyr(const owl_message *m, FILE *file) {
-    char *tmp;
-    tmp=short_zuser(owl_message_get_sender(m));
-    fprintf(file, "Class: %s Instance: %s", owl_message_get_class(m), owl_message_get_instance(m));
-    if (strcmp(owl_message_get_opcode(m), "")) fprintf(file, " Opcode: %s", owl_message_get_opcode(m));
-    fprintf(file, "\n");
-    fprintf(file, "Time: %s Host: %s\n", owl_message_get_timestr(m), owl_message_get_hostname(m));
-    fprintf(file, "From: %s <%s>\n\n", owl_message_get_zsig(m), tmp);
-    fprintf(file, "%s\n\n", owl_message_get_body(m));
+CALLER_OWN char *owl_log_zephyr(const owl_message *m)
+{
+    char *tmp = NULL;
+    GString *buffer = NULL;
+    buffer = g_string_new("");
+    tmp = short_zuser(owl_message_get_sender(m));
+    g_string_append_printf(buffer, "Class: %s Instance: %s", 
+                           owl_message_get_class(m), 
+                           owl_message_get_instance(m));
+    if (strcmp(owl_message_get_opcode(m), "")) {
+      g_string_append_printf(buffer, " Opcode: %s", 
+                             owl_message_get_opcode(m));
+    }
+    g_string_append_printf(buffer, "\n");
+    g_string_append_printf(buffer, "Time: %s Host: %s\n", 
+                           owl_message_get_timestr(m), 
+                           owl_message_get_hostname(m));
+    g_string_append_printf(buffer, "From: %s <%s>\n\n", 
+                           owl_message_get_zsig(m), tmp);
+    g_string_append_printf(buffer, "%s\n\n", owl_message_get_body(m));
     g_free(tmp);
+    return g_string_free(buffer, FALSE);
 }
 
-void owl_log_aim(const owl_message *m, FILE *file) {
-    fprintf(file, "From: <%s> To: <%s>\n", owl_message_get_sender(m), owl_message_get_recipient(m));
-    fprintf(file, "Time: %s\n\n", owl_message_get_timestr(m));
-    if (owl_message_is_login(m))
-        fprintf(file, "LOGIN\n\n");
-    else if (owl_message_is_logout(m))
-        fprintf(file, "LOGOUT\n\n");
-    else
-        fprintf(file, "%s\n\n", owl_message_get_body(m));
+CALLER_OWN char *owl_log_aim(const owl_message *m)
+{
+    GString *buffer = NULL;
+    buffer = g_string_new("");
+    g_string_append_printf(buffer, "From: <%s> To: <%s>\n", 
+                           owl_message_get_sender(m), owl_message_get_recipient(m));
+    g_string_append_printf(buffer, "Time: %s\n\n", 
+                           owl_message_get_timestr(m));
+    if (owl_message_is_login(m)) {
+        g_string_append_printf(buffer, "LOGIN\n\n");
+    } else if (owl_message_is_logout(m)) {
+        g_string_append_printf(buffer, "LOGOUT\n\n");
+    } else {
+        g_string_append_printf(buffer, "%s\n\n", owl_message_get_body(m));
+    }
+    return g_string_free(buffer, FALSE);
 }
 
-void owl_log_jabber(const owl_message *m, FILE *file) {
-    fprintf(file, "From: <%s> To: <%s>\n",owl_message_get_sender(m), owl_message_get_recipient(m));
-    fprintf(file, "Time: %s\n\n", owl_message_get_timestr(m));
-    fprintf(file, "%s\n\n",owl_message_get_body(m));
+CALLER_OWN char *owl_log_jabber(const owl_message *m)
+{
+    GString *buffer = NULL;
+    buffer = g_string_new("");
+    g_string_append_printf(buffer, "From: <%s> To: <%s>\n",
+                           owl_message_get_sender(m), 
+                           owl_message_get_recipient(m));
+    g_string_append_printf(buffer, "Time: %s\n\n", 
+                           owl_message_get_timestr(m));
+    g_string_append_printf(buffer, "%s\n\n", owl_message_get_body(m));
+    return g_string_free(buffer, FALSE);
 }
 
-void owl_log_generic(const owl_message *m, FILE *file) {
-    fprintf(file, "From: <%s> To: <%s>\n", owl_message_get_sender(m), owl_message_get_recipient(m));
-    fprintf(file, "Time: %s\n\n", owl_message_get_timestr(m));
-    fprintf(file, "%s\n\n", owl_message_get_body(m));
+CALLER_OWN char *owl_log_generic(const owl_message *m)
+{
+    GString *buffer;
+    buffer = g_string_new("");
+    g_string_append_printf(buffer, "From: <%s> To: <%s>\n", 
+                           owl_message_get_sender(m), 
+                           owl_message_get_recipient(m));
+    g_string_append_printf(buffer, "Time: %s\n\n", 
+                           owl_message_get_timestr(m));
+    g_string_append_printf(buffer, "%s\n\n", 
+                           owl_message_get_body(m));
+    return g_string_free(buffer, FALSE);
+}
+
+static void owl_log_error_main_thread(gpointer data)
+{
+  owl_function_error("%s", (const char*)data);
+}
+
+static void owl_log_error(const char *message)
+{
+  char *data = g_strdup(message);
+  owl_select_post_task(owl_log_error_main_thread,
+		       data, g_free, g_main_context_default());
+}
+
+static void owl_log_write_entry(gpointer data)
+{
+  owl_log_entry *msg = (owl_log_entry*)data;
+  FILE *file = NULL;
+  file = fopen(msg->filename, "a");
+  if (!file) {
+    owl_log_error("Unable to open file for logging");
+    return;
+  }
+  fprintf(file, "%s", msg->message);
+  fclose(file);
+}
+
+static void owl_log_entry_free(void *data)
+{
+  owl_log_entry *msg = (owl_log_entry*)data;
+  if (msg) {
+    g_free(msg->message);
+    g_free(msg->filename);
+    g_free(msg);
+  }
+}
+
+void owl_log_enqueue_message(const char *buffer, const char *filename)
+{
+  owl_log_entry *log_msg = NULL; 
+  log_msg = g_new(owl_log_entry,1);
+  log_msg->message = g_strdup(buffer);
+  log_msg->filename = g_strdup(filename);
+  owl_select_post_task(owl_log_write_entry, log_msg, 
+		       owl_log_entry_free, log_context);
 }
 
 void owl_log_append(const owl_message *m, const char *filename) {
-    FILE *file;
-    file=fopen(filename, "a");
-    if (!file) {
-        owl_function_error("Unable to open file for logging");
-        return;
-    }
-    if (owl_message_is_type_zephyr(m)) {
-        owl_log_zephyr(m, file);
-    } else if (owl_message_is_type_jabber(m)) {
-        owl_log_jabber(m, file);
-    } else if (owl_message_is_type_aim(m)) {
-        owl_log_aim(m, file);
-    } else {
-        owl_log_generic(m, file);
-    }
-    fclose(file);
+  char *buffer = NULL;
+  if (owl_message_is_type_zephyr(m)) {
+    buffer = owl_log_zephyr(m);
+  } else if (owl_message_is_type_jabber(m)) {
+    buffer = owl_log_jabber(m);
+  } else if (owl_message_is_type_aim(m)) {
+    buffer = owl_log_aim(m);
+  } else {
+    buffer = owl_log_generic(m);
+  }
+  owl_log_enqueue_message(buffer, filename);
+  g_free(buffer);
 }
 
 void owl_log_outgoing(const owl_message *m)
 {
-  char filename[MAXPATHLEN], *logpath;
+  char *filename, *logpath;
   char *to, *temp;
   GList *cc;
 
   /* expand ~ in path names */
-  logpath = owl_text_substitute(owl_global_get_logpath(&g), "~", owl_global_get_homedir(&g));
+  logpath = owl_util_makepath(owl_global_get_logpath(&g));
 
   /* Figure out what path to log to */
   if (owl_message_is_type_zephyr(m)) {
@@ -138,9 +223,10 @@ void owl_log_outgoing(const owl_message *m)
     cc = owl_message_get_cc_without_recipient(m);
     while (cc != NULL) {
       temp = short_zuser(cc->data);
-      snprintf(filename, MAXPATHLEN, "%s/%s", logpath, temp);
+      filename = g_strdup_printf("%s/%s", logpath, temp);
       owl_log_append(m, filename);
 
+      g_free(filename);
       g_free(temp);
       g_free(cc->data);
       cc = g_list_delete_link(cc, cc);
@@ -149,7 +235,7 @@ void owl_log_outgoing(const owl_message *m)
     to = short_zuser(owl_message_get_recipient(m));
   } else if (owl_message_is_type_jabber(m)) {
     to = g_strdup_printf("jabber:%s", owl_message_get_recipient(m));
-    owl_text_tr(to, '/', '_');
+    g_strdelimit(to, "/", '_');
   } else if (owl_message_is_type_aim(m)) {
     char *temp2;
     temp = owl_aim_normalize_screenname(owl_message_get_recipient(m));
@@ -161,28 +247,30 @@ void owl_log_outgoing(const owl_message *m)
     to = g_strdup("loopback");
   }
 
-  snprintf(filename, MAXPATHLEN, "%s/%s", logpath, to);
+  filename = g_strdup_printf("%s/%s", logpath, to);
   owl_log_append(m, filename);
   g_free(to);
+  g_free(filename);
 
-  snprintf(filename, MAXPATHLEN, "%s/all", logpath);
+  filename = g_strdup_printf("%s/all", logpath);
   owl_log_append(m, filename);
   g_free(logpath);
+  g_free(filename);
 }
 
 
 void owl_log_outgoing_zephyr_error(const owl_zwrite *zw, const char *text)
 {
-  FILE *file;
-  char filename[MAXPATHLEN], *logpath;
-  char *tobuff;
+  char *filename, *logpath;
+  char *tobuff, *recip;
   owl_message *m;
-
+  GString *msgbuf;
   /* create a present message so we can pass it to
    * owl_log_shouldlog_message(void)
    */
   m = owl_message_new();
-  owl_message_create_from_zwrite(m, zw, text);
+  /* recip_index = 0 because there can only be one recipient anyway */
+  owl_message_create_from_zwrite(m, zw, text, 0);
   if (!owl_log_shouldlog_message(m)) {
     owl_message_delete(m);
     return;
@@ -190,45 +278,37 @@ void owl_log_outgoing_zephyr_error(const owl_zwrite *zw, const char *text)
   owl_message_delete(m);
 
   /* chop off a local realm */
-  tobuff = short_zuser(owl_list_get_element(&(zw->recips), 0));
+  recip = owl_zwrite_get_recip_n_with_realm(zw, 0);
+  tobuff = short_zuser(recip);
+  g_free(recip);
 
   /* expand ~ in path names */
-  logpath = owl_text_substitute(owl_global_get_logpath(&g), "~", owl_global_get_homedir(&g));
-
-  snprintf(filename, MAXPATHLEN, "%s/%s", logpath, tobuff);
-  file=fopen(filename, "a");
-  if (!file) {
-    owl_function_error("Unable to open file for outgoing logging");
-    g_free(logpath);
-    g_free(tobuff);
-    return;
+  logpath = owl_util_makepath(owl_global_get_logpath(&g));
+  filename = g_strdup_printf("%s/%s", logpath, tobuff);
+  msgbuf = g_string_new("");
+  g_string_printf(msgbuf, "ERROR (owl): %s\n%s\n", tobuff, text);
+  if (text[strlen(text)-1] != '\n') {
+    g_string_append_printf(msgbuf, "\n");
   }
-  fprintf(file, "ERROR (owl): %s\n%s\n", tobuff, text);
-  if (text[strlen(text)-1]!='\n') {
-    fprintf(file, "\n");
-  }
-  fclose(file);
+  owl_log_enqueue_message(msgbuf->str, filename);
+  g_string_free(msgbuf, TRUE);
 
-  snprintf(filename, MAXPATHLEN, "%s/all", logpath);
+  filename = g_strdup_printf("%s/all", logpath);
   g_free(logpath);
-  file=fopen(filename, "a");
-  if (!file) {
-    owl_function_error("Unable to open file for outgoing logging");
-    g_free(tobuff);
-    return;
+  msgbuf = g_string_new("");
+  g_string_printf(msgbuf, "ERROR (owl): %s\n%s\n", tobuff, text);
+  if (text[strlen(text)-1] != '\n') {
+    g_string_append_printf(msgbuf, "\n");
   }
-  fprintf(file, "ERROR (owl): %s\n%s\n", tobuff, text);
-  if (text[strlen(text)-1]!='\n') {
-    fprintf(file, "\n");
-  }
-  fclose(file);
+  owl_log_enqueue_message(msgbuf->str, filename);
+  g_string_free(msgbuf, TRUE);
 
   g_free(tobuff);
 }
 
 void owl_log_incoming(const owl_message *m)
 {
-  char filename[MAXPATHLEN], allfilename[MAXPATHLEN], *logpath;
+  char *filename, *allfilename, *logpath;
   const char *from=NULL;
   char *frombuff=NULL;
   int len, ch, i, personal;
@@ -275,9 +355,11 @@ void owl_log_incoming(const owl_message *m)
     from=frombuff=g_strdup("loopback");
   } else if (owl_message_is_type_jabber(m)) {
     if (personal) {
-      from=frombuff=g_strdup_printf("jabber:%s",owl_message_get_sender(m));
+      from=frombuff=g_strdup_printf("jabber:%s", 
+				    owl_message_get_sender(m));
     } else {
-      from=frombuff=g_strdup_printf("jabber:%s",owl_message_get_recipient(m));
+      from=frombuff=g_strdup_printf("jabber:%s", 
+				    owl_message_get_recipient(m));
     }
   } else {
     from=frombuff=g_strdup("unknown");
@@ -309,17 +391,18 @@ void owl_log_incoming(const owl_message *m)
 
   /* create the filename (expanding ~ in path names) */
   if (personal) {
-    logpath = owl_text_substitute(owl_global_get_logpath(&g), "~", owl_global_get_homedir(&g));
-    snprintf(filename, MAXPATHLEN, "%s/%s", logpath, from);
-    snprintf(allfilename, MAXPATHLEN, "%s/all", logpath);
+    logpath = owl_util_makepath(owl_global_get_logpath(&g));
+    filename = g_strdup_printf("%s/%s", logpath, from);
+    allfilename = g_strdup_printf("%s/all", logpath);
     owl_log_append(m, allfilename);
-
+    g_free(allfilename);
   } else {
-    logpath = owl_text_substitute(owl_global_get_classlogpath(&g), "~", owl_global_get_homedir(&g));
-    snprintf(filename, MAXPATHLEN, "%s/%s", logpath, from);
+    logpath = owl_util_makepath(owl_global_get_classlogpath(&g));
+    filename = g_strdup_printf("%s/%s", logpath, from);
   }
 
   owl_log_append(m, filename);
+  g_free(filename);
 
   if (personal && owl_message_is_type_zephyr(m)) {
     /* We want to log to all of the CC'd people who were not us, or
@@ -331,8 +414,9 @@ void owl_log_incoming(const owl_message *m)
     while (cc != NULL) {
       temp = short_zuser(cc->data);
       if (strcasecmp(temp, frombuff) != 0) {
-        snprintf(filename, MAXPATHLEN, "%s/%s", logpath, temp);
+	filename = g_strdup_printf("%s/%s", logpath, temp);
         owl_log_append(m, filename);
+	g_free(filename);
       }
 
       g_free(temp);
@@ -343,4 +427,40 @@ void owl_log_incoming(const owl_message *m)
 
   g_free(frombuff);
   g_free(logpath);
+}
+
+static gpointer owl_log_thread_func(gpointer data)
+{
+  log_context = g_main_context_new();
+  log_loop = g_main_loop_new(log_context, FALSE);
+  g_main_loop_run(log_loop);
+  return NULL;
+}
+
+void owl_log_init(void) 
+{
+  GError *error = NULL;
+  logging_thread = g_thread_create(owl_log_thread_func,
+                                   NULL,
+                                   TRUE,
+                                   &error);
+  if (error) {
+    endwin();
+    fprintf(stderr, "Error spawning logging thread: %s\n", error->message);
+    fflush(stderr);
+    exit(1);
+  }
+  
+}
+
+static void owl_log_quit_func(gpointer data)
+{
+  g_main_loop_quit(log_loop);
+}
+
+void owl_log_shutdown(void)
+{
+  owl_select_post_task(owl_log_quit_func, NULL,
+		       NULL, log_context);
+  g_thread_join(logging_thread);
 }

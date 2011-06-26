@@ -7,6 +7,12 @@
 #include "owl.h"
 
 #ifdef HAVE_LIBZEPHYR
+static GSource *owl_zephyr_event_source_new(int fd);
+
+static gboolean owl_zephyr_event_prepare(GSource *source, int *timeout);
+static gboolean owl_zephyr_event_check(GSource *source);
+static gboolean owl_zephyr_event_dispatch(GSource *source, GSourceFunc callback, gpointer user_data);
+
 static GList *deferred_subs = NULL;
 
 typedef struct _owl_sub_list {                            /* noproto */
@@ -15,6 +21,13 @@ typedef struct _owl_sub_list {                            /* noproto */
 } owl_sub_list;
 
 Code_t ZResetAuthentication(void);
+
+static GSourceFuncs zephyr_event_funcs = {
+  owl_zephyr_event_prepare,
+  owl_zephyr_event_check,
+  owl_zephyr_event_dispatch,
+  NULL
+};
 #endif
 
 #define HM_SVC_FALLBACK		htons((unsigned short) 2104)
@@ -30,11 +43,11 @@ static char *owl_zephyr_dotfile(const char *name, const char *input)
 #ifdef HAVE_LIBZEPHYR
 void owl_zephyr_initialize(void)
 {
-  int ret;
+  Code_t ret;
   struct servent *sp;
   struct sockaddr_in sin;
   ZNotice_t req;
-  Code_t code;
+  GIOChannel *channel;
 
   /*
    * Code modified from libzephyr's ZhmStat.c
@@ -68,38 +81,42 @@ void owl_zephyr_initialize(void)
   req.z_default_format = zstr("");
   req.z_message_len = 0;
 
-  if ((code = ZSetDestAddr(&sin)) != ZERR_NONE) {
-    owl_function_error("Initializing Zephyr: %s", error_message(code));
+  if ((ret = ZSetDestAddr(&sin)) != ZERR_NONE) {
+    owl_function_error("Initializing Zephyr: %s", error_message(ret));
     return;
   }
 
-  if ((code = ZSendNotice(&req, ZNOAUTH)) != ZERR_NONE) {
-    owl_function_error("Initializing Zephyr: %s", error_message(code));
+  if ((ret = ZSendNotice(&req, ZNOAUTH)) != ZERR_NONE) {
+    owl_function_error("Initializing Zephyr: %s", error_message(ret));
     return;
   }
 
-  owl_select_add_io_dispatch(ZGetFD(), OWL_IO_READ|OWL_IO_EXCEPT, &owl_zephyr_finish_initialization, NULL, NULL);
+  channel = g_io_channel_unix_new(ZGetFD());
+  g_io_add_watch(channel, G_IO_IN | G_IO_ERR | G_IO_HUP,
+		 &owl_zephyr_finish_initialization, NULL);
+  g_io_channel_unref(channel);
 }
 
-void owl_zephyr_finish_initialization(const owl_io_dispatch *d, void *data) {
+gboolean owl_zephyr_finish_initialization(GIOChannel *source, GIOCondition condition, void *data) {
   Code_t code;
   char *perl;
-
-  owl_select_remove_io_dispatch(d);
+  GSource *event_source;
 
   ZClosePort();
 
   if ((code = ZInitialize()) != ZERR_NONE) {
     owl_function_error("Initializing Zephyr: %s", error_message(code));
-    return;
+    return FALSE;
   }
 
   if ((code = ZOpenPort(NULL)) != ZERR_NONE) {
     owl_function_error("Initializing Zephyr: %s", error_message(code));
-    return;
+    return FALSE;
   }
 
-  owl_select_add_io_dispatch(ZGetFD(), OWL_IO_READ|OWL_IO_EXCEPT, &owl_zephyr_process_events, NULL, NULL);
+  event_source = owl_zephyr_event_source_new(ZGetFD());
+  g_source_attach(event_source, NULL);
+  g_source_unref(event_source);
 
   owl_global_set_havezephyr(&g);
 
@@ -127,8 +144,7 @@ void owl_zephyr_finish_initialization(const owl_io_dispatch *d, void *data) {
 
   perl = owl_perlconfig_execute("BarnOwl::Zephyr::_zephyr_startup()");
   g_free(perl);
-
-  owl_select_add_pre_select_action(owl_zephyr_pre_select_action, NULL, NULL);
+  return FALSE;
 }
 
 void owl_zephyr_load_initial_subs(void) {
@@ -189,6 +205,22 @@ int owl_zephyr_zpending(void)
   return 0;
 }
 
+int owl_zephyr_zqlength(void)
+{
+#ifdef HAVE_LIBZEPHYR
+  Code_t code;
+  if(owl_global_is_havezephyr(&g)) {
+    if((code = ZQLength()) < 0) {
+      owl_function_debugmsg("Error (%s) in ZQLength()\n",
+                            error_message(code));
+      return 0;
+    }
+    return code;
+  }
+#endif
+  return 0;
+}
+
 const char *owl_zephyr_get_realm(void)
 {
 #ifdef HAVE_LIBZEPHYR
@@ -211,11 +243,15 @@ const char *owl_zephyr_get_sender(void)
 int owl_zephyr_loadsubs_helper(ZSubscription_t subs[], int count)
 {
   int ret = 0;
+  Code_t code;
+
   if (owl_global_is_havezephyr(&g)) {
     int i;
     /* sub without defaults */
-    if (ZSubscribeToSansDefaults(subs,count,0) != ZERR_NONE) {
-      owl_function_error("Error subscribing to zephyr notifications.");
+    code = ZSubscribeToSansDefaults(subs, count, 0);
+    if (code != ZERR_NONE) {
+      owl_function_error("Error subscribing to zephyr notifications: %s",
+                         error_message(code));
       ret=-2;
     }
 
@@ -351,11 +387,15 @@ int owl_zephyr_loadbarnowldefaultsubs(void)
 int owl_zephyr_loaddefaultsubs(void)
 {
 #ifdef HAVE_LIBZEPHYR
+  Code_t ret;
+
   if (owl_global_is_havezephyr(&g)) {
     ZSubscription_t subs[10];
-    
-    if (ZSubscribeTo(subs,0,0) != ZERR_NONE) {
-      owl_function_error("Error subscribing to default zephyr notifications.");
+
+    ret = ZSubscribeTo(subs, 0, 0);
+    if (ret != ZERR_NONE) {
+      owl_function_error("Error subscribing to default zephyr notifications: %s.",
+                           error_message(ret));
       return(-1);
     }
   }
@@ -409,8 +449,7 @@ int owl_zephyr_loadloginsubs(const char *filename)
   } else {
     return 0;
   }
-  if (buffer)
-    g_free(buffer);
+  g_free(buffer);
 
   return owl_zephyr_loadsubs_helper(subs, count);
 #else
@@ -421,13 +460,13 @@ int owl_zephyr_loadloginsubs(const char *filename)
 void unsuball(void)
 {
 #if HAVE_LIBZEPHYR
-  int ret;
+  Code_t ret;
 
   ZResetAuthentication();
-  ret=ZCancelSubscriptions(0);
-  if (ret != ZERR_NONE) {
-    com_err("owl",ret,"while unsubscribing");
-  }
+  ret = ZCancelSubscriptions(0);
+  if (ret != ZERR_NONE)
+    owl_function_error("Zephyr: Cancelling subscriptions: %s",
+                       error_message(ret));
 #endif
 }
 
@@ -435,14 +474,18 @@ int owl_zephyr_sub(const char *class, const char *inst, const char *recip)
 {
 #ifdef HAVE_LIBZEPHYR
   ZSubscription_t subs[5];
+  Code_t ret;
 
   subs[0].zsub_class=zstr(class);
   subs[0].zsub_classinst=zstr(inst);
   subs[0].zsub_recipient=zstr(recip);
 
   ZResetAuthentication();
-  if (ZSubscribeTo(subs,1,0) != ZERR_NONE) {
-    owl_function_error("Error subbing to <%s,%s,%s>", class, inst, recip);
+  ret = ZSubscribeTo(subs, 1, 0);
+  if (ret != ZERR_NONE) {
+    owl_function_error("Error subbing to <%s,%s,%s>: %s",
+                       class, inst, recip,
+                       error_message(ret));
     return(-2);
   }
   return(0);
@@ -456,14 +499,18 @@ int owl_zephyr_unsub(const char *class, const char *inst, const char *recip)
 {
 #ifdef HAVE_LIBZEPHYR
   ZSubscription_t subs[5];
+  Code_t ret;
 
   subs[0].zsub_class=zstr(class);
   subs[0].zsub_classinst=zstr(inst);
   subs[0].zsub_recipient=zstr(recip);
 
   ZResetAuthentication();
-  if (ZUnsubscribeTo(subs,1,0) != ZERR_NONE) {
-    owl_function_error("Error unsubbing from <%s,%s,%s>", class, inst, recip);
+  ret = ZUnsubscribeTo(subs, 1, 0);
+  if (ret != ZERR_NONE) {
+    owl_function_error("Error unsubbing from <%s,%s,%s>: %s",
+                       class, inst, recip,
+                       error_message(ret));
     return(-2);
   }
   return(0);
@@ -476,7 +523,7 @@ int owl_zephyr_unsub(const char *class, const char *inst, const char *recip)
  * definition).  Caller must free the return.
  */
 #ifdef HAVE_LIBZEPHYR
-char *owl_zephyr_get_field(const ZNotice_t *n, int j)
+CALLER_OWN char *owl_zephyr_get_field(const ZNotice_t *n, int j)
 {
   int i, count, save;
 
@@ -504,7 +551,7 @@ char *owl_zephyr_get_field(const ZNotice_t *n, int j)
   return(g_strdup(""));
 }
 
-char *owl_zephyr_get_field_as_utf8(const ZNotice_t *n, int j)
+CALLER_OWN char *owl_zephyr_get_field_as_utf8(const ZNotice_t *n, int j)
 {
   int i, count, save;
 
@@ -536,11 +583,11 @@ char *owl_zephyr_get_field_as_utf8(const ZNotice_t *n, int j)
   return(g_strdup(""));
 }
 #else
-char *owl_zephyr_get_field(void *n, int j)
+CALLER_OWN char *owl_zephyr_get_field(void *n, int j)
 {
   return(g_strdup(""));
 }
-char *owl_zephyr_get_field_as_utf8(void *n, int j)
+CALLER_OWN char *owl_zephyr_get_field_as_utf8(void *n, int j)
 {
   return owl_zephyr_get_field(n, j);
 }
@@ -573,67 +620,50 @@ int owl_zephyr_get_num_fields(const void *n)
 /* return a pointer to the message, place the message length in k
  * caller must free the return
  */
-char *owl_zephyr_get_message(const ZNotice_t *n, const owl_message *m)
+CALLER_OWN char *owl_zephyr_get_message(const ZNotice_t *n, const owl_message *m)
 {
+#define OWL_NFIELDS	5
+  int i;
+  char *fields[OWL_NFIELDS + 1];
+  char *msg = NULL;
+
   /* don't let ping messages have a body */
   if (!strcasecmp(n->z_opcode, "ping")) {
     return(g_strdup(""));
   }
 
+  for(i = 0; i < OWL_NFIELDS; i++)
+    fields[i + 1] = owl_zephyr_get_field(n, i + 1);
+
   /* deal with MIT NOC messages */
   if (!strcasecmp(n->z_default_format, "@center(@bold(NOC Message))\n\n@bold(Sender:) $1 <$sender>\n@bold(Time:  ) $time\n\n@italic($opcode service on $instance $3.) $4\n")) {
-    char *msg, *field3, *field4;
 
-    field3 = owl_zephyr_get_field(n, 3);
-    field4 = owl_zephyr_get_field(n, 4);
-
-    msg = g_strdup_printf("%s service on %s %s\n%s", n->z_opcode, n->z_class_inst, field3, field4);
-    g_free(field3);
-    g_free(field4);
-    if (msg) {
-      return msg;
-    }
+    msg = g_strdup_printf("%s service on %s %s\n%s", n->z_opcode, n->z_class_inst, fields[3], fields[4]);
   }
   /* deal with MIT Discuss messages */
   else if (!strcasecmp(n->z_default_format, "New transaction [$1] entered in $2\nFrom: $3 ($5)\nSubject: $4") ||
            !strcasecmp(n->z_default_format, "New transaction [$1] entered in $2\nFrom: $3\nSubject: $4")) {
-    char *msg, *field1, *field2, *field3, *field4, *field5;
     
-    field1 = owl_zephyr_get_field(n, 1);
-    field2 = owl_zephyr_get_field(n, 2);
-    field3 = owl_zephyr_get_field(n, 3);
-    field4 = owl_zephyr_get_field(n, 4);
-    field5 = owl_zephyr_get_field(n, 5);
-    
-    msg = g_strdup_printf("New transaction [%s] entered in %s\nFrom: %s (%s)\nSubject: %s", field1, field2, field3, field5, field4);
-    g_free(field1);
-    g_free(field2);
-    g_free(field3);
-    g_free(field4);
-    g_free(field5);
-    if (msg) {
-      return msg;
-    }
+    msg = g_strdup_printf("New transaction [%s] entered in %s\nFrom: %s (%s)\nSubject: %s",
+                          fields[1], fields[2], fields[3], fields[5], fields[4]);
   }
   /* deal with MIT Moira messages */
   else if (!strcasecmp(n->z_default_format, "MOIRA $instance on $fromhost:\n $message\n")) {
-    char *msg, *field1;
-    
-    field1 = owl_zephyr_get_field(n, 1);
-    
-    msg = g_strdup_printf("MOIRA %s on %s: %s", n->z_class_inst, owl_message_get_hostname(m), field1);
-    g_free(field1);
-    if (msg) {
-      return msg;
-    }
+    msg = g_strdup_printf("MOIRA %s on %s: %s",
+                          n->z_class_inst,
+                          owl_message_get_hostname(m),
+                          fields[1]);
+  } else {
+    if (owl_zephyr_get_num_fields(n) == 1)
+      msg = g_strdup(fields[1]);
+    else
+      msg = g_strdup(fields[2]);
   }
 
-  if (owl_zephyr_get_num_fields(n) == 1) {
-    return(owl_zephyr_get_field(n, 1));
-  }
-  else {
-    return(owl_zephyr_get_field(n, 2));
-  }
+  for (i = 0; i < OWL_NFIELDS; i++)
+    g_free(fields[i + 1]);
+
+  return msg;
 }
 #endif
 
@@ -668,7 +698,7 @@ const char *owl_zephyr_get_zsig(const void *n, int *k)
 int send_zephyr(const char *opcode, const char *zsig, const char *class, const char *instance, const char *recipient, const char *message)
 {
 #ifdef HAVE_LIBZEPHYR
-  int ret;
+  Code_t ret;
   ZNotice_t notice;
     
   memset(&notice, 0, sizeof(notice));
@@ -703,8 +733,8 @@ int send_zephyr(const char *opcode, const char *zsig, const char *class, const c
   /* free then check the return */
   g_free(notice.z_message);
   ZFreeNotice(&notice);
-  if (ret!=ZERR_NONE) {
-    owl_function_error("Error sending zephyr");
+  if (ret != ZERR_NONE) {
+    owl_function_error("Error sending zephyr: %s", error_message(ret));
     return(ret);
   }
   return(0);
@@ -761,18 +791,17 @@ void owl_zephyr_handle_ack(const ZNotice_t *retnotice)
       }
     }
   } else if (!strcmp(retnotice->z_message, ZSRVACK_NOTSENT)) {
-    #define BUFFLEN 1024
     if (retnotice->z_recipient == NULL
         || *retnotice->z_recipient == 0
         || *retnotice->z_recipient == '@') {
-      char buff[BUFFLEN];
+      char *buff;
       owl_function_error("No one subscribed to class %s", retnotice->z_class);
-      snprintf(buff, BUFFLEN, "Could not send message to class %s: no one subscribed.\n", retnotice->z_class);
+      buff = g_strdup_printf("Could not send message to class %s: no one subscribed.\n", retnotice->z_class);
       owl_function_adminmsg("", buff);
+      g_free(buff);
     } else {
-      char buff[BUFFLEN];
+      char *buff;
       owl_zwrite zw;
-      char *realm;
 
       tmp = short_zuser(retnotice->z_recipient);
       owl_function_error("%s: Not logged in or subscribing.", tmp);
@@ -782,20 +811,20 @@ void owl_zephyr_handle_ack(const ZNotice_t *retnotice)
        * terminals or who don't care, not splitting saves a line in the UI
        */
       if(strcasecmp(retnotice->z_class, "message")) {
-        snprintf(buff, BUFFLEN,
+        buff = g_strdup_printf(
                  "Could not send message to %s: "
                  "not logged in or subscribing to class %s, instance %s.\n",
                  tmp,
                  retnotice->z_class,
                  retnotice->z_class_inst);
       } else if(strcasecmp(retnotice->z_class_inst, "personal")) {
-        snprintf(buff, BUFFLEN,
+        buff = g_strdup_printf(
                  "Could not send message to %s: "
                  "not logged in or subscribing to instance %s.\n",
                  tmp,
                  retnotice->z_class_inst);
       } else {
-        snprintf(buff, BUFFLEN,
+        buff = g_strdup_printf(
                  "Could not send message to %s: "
                  "not logged in or subscribing to messages.\n",
                  tmp);
@@ -805,20 +834,16 @@ void owl_zephyr_handle_ack(const ZNotice_t *retnotice)
       memset(&zw, 0, sizeof(zw));
       zw.class = g_strdup(retnotice->z_class);
       zw.inst  = g_strdup(retnotice->z_class_inst);
-      realm = strchr(retnotice->z_recipient, '@');
-      if(realm) {
-        zw.realm = g_strdup(realm + 1);
-      } else {
-        zw.realm = g_strdup(owl_zephyr_get_realm());
-      }
+      zw.realm = g_strdup("");
       zw.opcode = g_strdup(retnotice->z_opcode);
       zw.zsig   = g_strdup("");
-      owl_list_create(&(zw.recips));
-      owl_list_append_element(&(zw.recips), g_strdup(tmp));
+      zw.recips = g_ptr_array_new();
+      g_ptr_array_add(zw.recips, g_strdup(retnotice->z_recipient));
 
       owl_log_outgoing_zephyr_error(&zw, buff);
 
       owl_zwrite_cleanup(&zw);
+      g_free(buff);
       g_free(tmp);
     }
   } else {
@@ -851,7 +876,6 @@ void owl_zephyr_zaway(const owl_message *m)
 {
 #ifdef HAVE_LIBZEPHYR
   char *tmpbuff, *myuser, *to;
-  owl_message *mout;
   owl_zwrite *z;
   
   /* bail if it doesn't look like a message we should reply to.  Some
@@ -881,21 +905,24 @@ void owl_zephyr_zaway(const owl_message *m)
 
   myuser=short_zuser(to);
   if (!strcasecmp(owl_message_get_instance(m), "personal")) {
-    tmpbuff = g_strdup_printf("zwrite %s", myuser);
+    tmpbuff = owl_string_build_quoted("zwrite %q", myuser);
   } else {
-    tmpbuff = g_strdup_printf("zwrite -i %s %s", owl_message_get_instance(m), myuser);
+    tmpbuff = owl_string_build_quoted("zwrite -i %q %q", owl_message_get_instance(m), myuser);
   }
   g_free(myuser);
   g_free(to);
 
   z = owl_zwrite_new(tmpbuff);
+  g_free(tmpbuff);
+  if (z == NULL) {
+    owl_function_error("Error creating outgoing zephyr.");
+    return;
+  }
   owl_zwrite_set_message(z, owl_global_get_zaway_msg(&g));
   owl_zwrite_set_zsig(z, "Automated reply:");
 
   /* display the message as an admin message in the receive window */
-  mout=owl_function_make_outgoing_zephyr(z);
-  owl_global_messagequeue_addmsg(&g, mout);
-  g_free(tmpbuff);
+  owl_function_add_outgoing_zephyrs(z);
   owl_zwrite_delete(z);
 #endif
 }
@@ -914,7 +941,7 @@ void owl_zephyr_hackaway_cr(ZNotice_t *n)
 }
 #endif
 
-char *owl_zephyr_zlocate(const char *user, int auth)
+CALLER_OWN char *owl_zephyr_zlocate(const char *user, int auth)
 {
 #ifdef HAVE_LIBZEPHYR
   int ret, numlocs;
@@ -1014,7 +1041,7 @@ void owl_zephyr_delsub(const char *filename, const char *class, const char *inst
 }
 
 /* caller must free the return */
-char *owl_zephyr_makesubline(const char *class, const char *inst, const char *recip)
+CALLER_OWN char *owl_zephyr_makesubline(const char *class, const char *inst, const char *recip)
 {
   return g_strdup_printf("%s,%s,%s\n", class, inst, !strcmp(recip, "") ? "*" : recip);
 }
@@ -1023,50 +1050,22 @@ char *owl_zephyr_makesubline(const char *class, const char *inst, const char *re
 void owl_zephyr_zlog_in(void)
 {
 #ifdef HAVE_LIBZEPHYR
-  const char *exposure, *eset;
-  int ret;
-
   ZResetAuthentication();
-    
-  eset=EXPOSE_REALMVIS;
-  exposure=ZGetVariable(zstr("exposure"));
-  if (exposure==NULL) {
-    eset=EXPOSE_REALMVIS;
-  } else if (!strcasecmp(exposure,EXPOSE_NONE)) {
-    eset = EXPOSE_NONE;
-  } else if (!strcasecmp(exposure,EXPOSE_OPSTAFF)) {
-    eset = EXPOSE_OPSTAFF;
-  } else if (!strcasecmp(exposure,EXPOSE_REALMVIS)) {
-    eset = EXPOSE_REALMVIS;
-  } else if (!strcasecmp(exposure,EXPOSE_REALMANN)) {
-    eset = EXPOSE_REALMANN;
-  } else if (!strcasecmp(exposure,EXPOSE_NETVIS)) {
-    eset = EXPOSE_NETVIS;
-  } else if (!strcasecmp(exposure,EXPOSE_NETANN)) {
-    eset = EXPOSE_NETANN;
-  }
-   
-  ret=ZSetLocation(zstr(eset));
-  if (ret != ZERR_NONE) {
-    /*
-      owl_function_makemsg("Error setting location: %s", error_message(ret));
-    */
-  }
+
+  /* ZSetLocation, and store the default value as the current value */
+  owl_global_set_exposure(&g, owl_global_get_default_exposure(&g));
 #endif
 }
 
 void owl_zephyr_zlog_out(void)
 {
 #ifdef HAVE_LIBZEPHYR
-  int ret;
+  Code_t ret;
 
   ZResetAuthentication();
-  ret=ZUnsetLocation();
-  if (ret != ZERR_NONE) {
-    /*
-      owl_function_makemsg("Error unsetting location: %s", error_message(ret));
-    */
-  }
+  ret = ZUnsetLocation();
+  if (ret != ZERR_NONE)
+    owl_function_error("Error unsetting location: %s", error_message(ret));
 #endif
 }
 
@@ -1122,19 +1121,19 @@ const char *owl_zephyr_get_authstr(const void *n)
 /* Returns a buffer of subscriptions or an error message.  Caller must
  * free the return.
  */
-char *owl_zephyr_getsubs(void)
+CALLER_OWN char *owl_zephyr_getsubs(void)
 {
 #ifdef HAVE_LIBZEPHYR
-  int ret, num, i, one;
+  Code_t ret;
+  int num, i, one;
   ZSubscription_t sub;
   GString *buf;
 
-  ret=ZRetrieveSubscriptions(0, &num);
-  if (ret==ZERR_TOOMANYSUBS) {
-    return(g_strdup("Zephyr: too many subscriptions\n"));
-  } else if (ret || (num <= 0)) {
-    return(g_strdup("Zephyr: error retriving subscriptions\n"));
-  }
+  ret = ZRetrieveSubscriptions(0, &num);
+  if (ret != ZERR_NONE)
+    return g_strdup_printf("Zephyr: Requesting subscriptions: %s\n", error_message(ret));
+  if (num == 0)
+    return g_strdup("Zephyr: No subscriptions retrieved\n");
 
   buf = g_string_new("");
   for (i=0; i<num; i++) {
@@ -1142,7 +1141,7 @@ char *owl_zephyr_getsubs(void)
     if ((ret = ZGetSubscriptions(&sub, &one)) != ZERR_NONE) {
       ZFlushSubscriptions();
       g_string_free(buf, true);
-      return g_strdup("Error while getting subscriptions\n");
+      return g_strdup_printf("Zephyr: Getting subscriptions: %s\n", error_message(ret));
     } else {
       /* g_string_append_printf would be backwards. */
       char *tmp = g_strdup_printf("<%s,%s,%s>\n",
@@ -1176,33 +1175,105 @@ void owl_zephyr_set_locationinfo(const char *host, const char *val)
   ZInitLocationInfo(zstr(host), zstr(val));
 #endif
 }
+
+const char *owl_zephyr_normalize_exposure(const char *exposure)
+{
+  if (exposure == NULL)
+    return NULL;
+#ifdef HAVE_LIBZEPHYR
+  return ZParseExposureLevel(zstr(exposure));
+#else
+  return exposure;
+#endif
+}
+
+int owl_zephyr_set_default_exposure(const char *exposure)
+{
+#ifdef HAVE_LIBZEPHYR
+  Code_t ret;
+  if (exposure == NULL)
+    return -1;
+  exposure = ZParseExposureLevel(zstr(exposure));
+  if (exposure == NULL)
+    return -1;
+  ret = ZSetVariable(zstr("exposure"), zstr(exposure)); /* ZSetVariable does file I/O */
+  if (ret != ZERR_NONE) {
+    owl_function_error("Unable to set default exposure location: %s", error_message(ret));
+    return -1;
+  }
+#endif
+  return 0;
+}
+
+const char *owl_zephyr_get_default_exposure(void)
+{
+#ifdef HAVE_LIBZEPHYR
+  const char *exposure = ZGetVariable(zstr("exposure")); /* ZGetVariable does file I/O */
+  if (exposure == NULL)
+    return EXPOSE_REALMVIS;
+  exposure = ZParseExposureLevel(zstr(exposure));
+  if (exposure == NULL) /* The user manually entered an invalid value in ~/.zephyr.vars, or something weird happened. */
+    return EXPOSE_REALMVIS;
+  return exposure;
+#else
+  return "";
+#endif
+}
+
+int owl_zephyr_set_exposure(const char *exposure)
+{
+#ifdef HAVE_LIBZEPHYR
+  Code_t ret;
+  if (exposure == NULL)
+    return -1;
+  exposure = ZParseExposureLevel(zstr(exposure));
+  if (exposure == NULL)
+    return -1;
+  ret = ZSetLocation(zstr(exposure));
+  if (ret != ZERR_NONE) {
+    owl_function_error("Unable to set exposure level: %s.", error_message(ret));
+    return -1;
+  }
+#endif
+  return 0;
+}
   
 /* Strip a local realm fron the zephyr user name.
  * The caller must free the return
  */
-char *short_zuser(const char *in)
+CALLER_OWN char *short_zuser(const char *in)
 {
-  char *out, *ptr;
-
-  out=g_strdup(in);
-  ptr=strchr(out, '@');
-  if (ptr) {
-    if (!strcasecmp(ptr+1, owl_zephyr_get_realm())) {
-      *ptr='\0';
-    }
+  char *ptr = strrchr(in, '@');
+  if (ptr && (ptr[1] == '\0' || !strcasecmp(ptr+1, owl_zephyr_get_realm()))) {
+    return g_strndup(in, ptr - in);
   }
-  return(out);
+  return g_strdup(in);
 }
 
 /* Append a local realm to the zephyr user name if necessary.
  * The caller must free the return.
  */
-char *long_zuser(const char *in)
+CALLER_OWN char *long_zuser(const char *in)
 {
-  if (strchr(in, '@')) {
-    return(g_strdup(in));
+  char *ptr = strrchr(in, '@');
+  if (ptr) {
+    if (ptr[1])
+      return g_strdup(in);
+    /* Ends in @, so assume default realm. */
+    return g_strdup_printf("%s%s", in, owl_zephyr_get_realm());
   }
-  return(g_strdup_printf("%s@%s", in, owl_zephyr_get_realm()));
+  return g_strdup_printf("%s@%s", in, owl_zephyr_get_realm());
+}
+
+/* Return the realm of the zephyr user name. Caller does /not/ free the return.
+ * The string is valid at least as long as the input is.
+ */
+const char *zuser_realm(const char *in)
+{
+  char *ptr = strrchr(in, '@');
+  /* If the name has an @ and does not end with @, use that. Otherwise, take
+   * the default realm. */
+  return (ptr && ptr[1]) ? (ptr+1) : owl_zephyr_get_realm();
 }
 
 /* strip out the instance from a zsender's principal.  Preserves the
@@ -1210,7 +1281,7 @@ char *long_zuser(const char *in)
  * alone. Also leave rcmd. and daemon. krb4 principals alone. The
  * caller must free the return.
  */
-char *owl_zephyr_smartstripped_user(const char *in)
+CALLER_OWN char *owl_zephyr_smartstripped_user(const char *in)
 {
   char *slash, *dot, *realm, *out;
 
@@ -1252,16 +1323,16 @@ char *owl_zephyr_smartstripped_user(const char *in)
   return(out);
 }
 
-/* read the list of users in 'filename' as a .anyone file, and put the
- * names of the zephyr users in the list 'in'.  If 'filename' is NULL,
- * use the default .anyone file in the users home directory.  Returns
- * -1 on failure, 0 on success.
+/* Read the list of users in 'filename' as a .anyone file, and return as a
+ * GPtrArray of strings.  If 'filename' is NULL, use the default .anyone file
+ * in the users home directory.  Returns NULL on failure.
  */
-int owl_zephyr_get_anyone_list(owl_list *in, const char *filename)
+GPtrArray *owl_zephyr_get_anyone_list(const char *filename)
 {
 #ifdef HAVE_LIBZEPHYR
   char *ourfile, *tmp, *s = NULL;
   FILE *f;
+  GPtrArray *list;
 
   ourfile = owl_zephyr_dotfile(".anyone", filename);
 
@@ -1269,10 +1340,11 @@ int owl_zephyr_get_anyone_list(owl_list *in, const char *filename)
   if (!f) {
     owl_function_error("Error opening file %s: %s", ourfile, strerror(errno) ? strerror(errno) : "");
     g_free(ourfile);
-    return -1;
+    return NULL;
   }
   g_free(ourfile);
 
+  list = g_ptr_array_new();
   while (owl_getline_chomp(&s, f)) {
     /* ignore comments, blank lines etc. */
     if (s[0] == '#' || s[0] == '\0')
@@ -1288,13 +1360,13 @@ int owl_zephyr_get_anyone_list(owl_list *in, const char *filename)
     if (tmp)
       tmp[0] = '\0';
 
-    owl_list_append_element(in, long_zuser(s));
+    g_ptr_array_add(list, long_zuser(s));
   }
   g_free(s);
   fclose(f);
-  return 0;
+  return list;
 #else
-  return -1;
+  return NULL;
 #endif
 }
 
@@ -1363,7 +1435,7 @@ void owl_zephyr_process_pseudologin(void *n)
 }
 #endif
 
-void owl_zephyr_buddycheck_timer(owl_timer *t, void *data)
+gboolean owl_zephyr_buddycheck_timer(void *data)
 {
   if (owl_global_is_pseudologins(&g)) {
     owl_function_debugmsg("Doing zephyr buddy check");
@@ -1371,6 +1443,7 @@ void owl_zephyr_buddycheck_timer(owl_timer *t, void *data)
   } else {
     owl_function_debugmsg("Warning: owl_zephyr_buddycheck_timer call pointless; timer should have been disabled");
   }
+  return TRUE;
 }
 
 /*
@@ -1382,10 +1455,10 @@ void owl_zephyr_buddycheck_timer(owl_timer *t, void *data)
 
 #define OWL_MAX_ZEPHYRGRAMS_TO_PROCESS 20
 
+#ifdef HAVE_LIBZEPHYR
 static int _owl_zephyr_process_events(void)
 {
   int zpendcount=0;
-#ifdef HAVE_LIBZEPHYR
   ZNotice_t notice;
   Code_t code;
   owl_message *m=NULL;
@@ -1428,16 +1501,41 @@ static int _owl_zephyr_process_events(void)
       ZFreeNotice(&notice);
     }
   }
-#endif
   return zpendcount;
 }
 
-void owl_zephyr_process_events(const owl_io_dispatch *d, void *data)
-{
-  _owl_zephyr_process_events();
+typedef struct { /*noproto*/
+  GSource source;
+  GPollFD poll_fd;
+} owl_zephyr_event_source;
+
+static GSource *owl_zephyr_event_source_new(int fd) {
+  GSource *source;
+  owl_zephyr_event_source *event_source;
+
+  source = g_source_new(&zephyr_event_funcs, sizeof(owl_zephyr_event_source));
+  event_source = (owl_zephyr_event_source*) source;
+  event_source->poll_fd.fd = fd;
+  event_source->poll_fd.events = G_IO_IN | G_IO_HUP | G_IO_ERR;
+  g_source_add_poll(source, &event_source->poll_fd);
+
+  return source;
 }
 
-int owl_zephyr_pre_select_action(owl_ps_action *a, void *p)
-{
-  return _owl_zephyr_process_events();
+static gboolean owl_zephyr_event_prepare(GSource *source, int *timeout) {
+  *timeout = -1;
+  return owl_zephyr_zqlength() > 0;
 }
+
+static gboolean owl_zephyr_event_check(GSource *source) {
+  owl_zephyr_event_source *event_source = (owl_zephyr_event_source*)source;
+  if (event_source->poll_fd.revents & event_source->poll_fd.events)
+    return owl_zephyr_zpending() > 0;
+  return FALSE;
+}
+
+static gboolean owl_zephyr_event_dispatch(GSource *source, GSourceFunc callback, gpointer user_data) {
+  _owl_zephyr_process_events();
+  return TRUE;
+}
+#endif

@@ -9,7 +9,7 @@ owl_filter *owl_filter_new_fromstring(const char *name, const char *string)
 
   argv = owl_parseline(string, &argc);
   f = owl_filter_new(name, argc, strs(argv));
-  owl_parse_delete(argv, argc);
+  g_strfreev(argv);
 
   return f;
 }
@@ -199,7 +199,7 @@ int owl_filter_message_match(const owl_filter *f, const owl_message *m)
 }
 
 
-char* owl_filter_print(const owl_filter *f)
+CALLER_OWN char *owl_filter_print(const owl_filter *f)
 {
   GString *out = g_string_new("");
 

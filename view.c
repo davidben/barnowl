@@ -256,7 +256,8 @@ owl_view_iterator* owl_view_iterator_delete_later(owl_view_iterator *it)
   return it;
 }
 
-int owl_view_iterator_delayed_delete(owl_ps_action *d, void *p) {
+int owl_view_iterator_delayed_delete(/*owl_ps_action*/void *d, void *p) {
+/* FIXME!!! */
   owl_view_iterator *it;
   while (ovi_delete_later) {
     it = ovi_delete_later;

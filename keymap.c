@@ -8,9 +8,9 @@ static void _owl_keymap_format_with_parents(const owl_keymap *km, owl_fmtext *fm
 int owl_keymap_init(owl_keymap *km, const char *name, const char *desc, void (*default_fn)(owl_input), void (*prealways_fn)(owl_input), void (*postalways_fn)(owl_input))
 {
   if (!name || !desc) return(-1);
-  if ((km->name = g_strdup(name)) == NULL) return(-1);
-  if ((km->desc = g_strdup(desc)) == NULL) return(-1);
-  if (0 != owl_list_create(&km->bindings)) return(-1);
+  km->name = g_strdup(name);
+  km->desc = g_strdup(desc);
+  km->bindings = g_ptr_array_new();
   km->parent = NULL;
   km->default_fn = default_fn;
   km->prealways_fn = prealways_fn;
@@ -23,7 +23,7 @@ void owl_keymap_cleanup(owl_keymap *km)
 {
   g_free(km->name);
   g_free(km->desc);
-  owl_list_cleanup(&km->bindings, (void (*)(void *))owl_keybinding_delete);
+  owl_ptr_array_free(km->bindings, (GDestroyNotify)owl_keybinding_delete);
 }
 
 void owl_keymap_set_parent(owl_keymap *km, const owl_keymap *parent)
@@ -34,54 +34,48 @@ void owl_keymap_set_parent(owl_keymap *km, const owl_keymap *parent)
 /* creates and adds a key binding */
 int owl_keymap_create_binding(owl_keymap *km, const char *keyseq, const char *command, void (*function_fn)(void), const char *desc)
 {
-  owl_keybinding *kb, *curkb;
+  owl_keybinding *kb;
   int i;
 
-  if ((kb = g_new(owl_keybinding, 1)) == NULL) return(-1);
-  if (0 != owl_keybinding_init(kb, keyseq, command, function_fn, desc)) {
-    g_free(kb);
-    return(-1);
-  }
+  kb = owl_keybinding_new(keyseq, command, function_fn, desc);
+  if (kb == NULL)
+    return -1;
   /* see if another matching binding, and if so remove it.
    * otherwise just add this one. 
    */
-  for (i = owl_list_get_size(&km->bindings)-1; i>=0; i--) {
-    curkb = owl_list_get_element(&km->bindings, i);
-    if (owl_keybinding_equal(curkb, kb)) {
-      owl_list_remove_element(&km->bindings, i);
-      owl_keybinding_delete(curkb);
+  for (i = km->bindings->len-1; i >= 0; i--) {
+    if (owl_keybinding_equal(km->bindings->pdata[i], kb)) {
+      owl_keybinding_delete(g_ptr_array_remove_index(km->bindings, i));
     }
   }
-  return owl_list_append_element(&km->bindings, kb);  
-
+  g_ptr_array_add(km->bindings, kb);
+  return 0;
 }
 
 /* removes the binding associated with the keymap */
 int owl_keymap_remove_binding(owl_keymap *km, const char *keyseq)
 {
-  owl_keybinding *kb, *curkb;
+  owl_keybinding *kb;
   int i;
 
-  if ((kb = g_new(owl_keybinding, 1)) == NULL) return(-1);
-  if (0 != owl_keybinding_make_keys(kb, keyseq)) {
-    g_free(kb);
-    return(-1);
-  }
+  kb = owl_keybinding_new(keyseq, NULL, NULL, NULL);
+  if (kb == NULL)
+    return -1;
 
-  for (i = owl_list_get_size(&km->bindings)-1; i >= 0; i--) {
-    curkb = owl_list_get_element(&km->bindings, i);
-    if (owl_keybinding_equal(curkb, kb)) {
-      owl_list_remove_element(&km->bindings, i);
-      owl_keybinding_delete(curkb);
+  for (i = km->bindings->len-1; i >= 0; i--) {
+    if (owl_keybinding_equal(km->bindings->pdata[i], kb)) {
+      owl_keybinding_delete(g_ptr_array_remove_index(km->bindings, i));
+      owl_keybinding_delete(kb);
       return(0);
     }
   }
+  owl_keybinding_delete(kb);
   return(-2);
 }
 
 
 /* returns a summary line describing this keymap.  the caller must free. */
-char *owl_keymap_summary(const owl_keymap *km)
+CALLER_OWN char *owl_keymap_summary(const owl_keymap *km)
 {
   if (!km || !km->name || !km->desc) return NULL;
   return g_strdup_printf("%-15s - %s", km->name, km->desc);
@@ -140,20 +134,20 @@ static void _owl_keymap_format_with_parents(const owl_keymap *km, owl_fmtext *fm
 
 static void _owl_keymap_format_bindings(const owl_keymap *km, owl_fmtext *fm)
 {
-  int i, nbindings;
+  int i;
   const owl_keybinding *kb;
   
-  nbindings = owl_list_get_size(&km->bindings);
-  for (i=0; i<nbindings; i++) {
-    char buff[100];
+  for (i = 0; i < km->bindings->len; i++) {
+    char *kbstr;
     const owl_cmd *cmd;
     const char *tmpdesc, *desc = "";
 
-    kb = owl_list_get_element(&km->bindings, i);
-    owl_keybinding_tostring(kb, buff, 100);
+    kb = km->bindings->pdata[i];
+    kbstr = owl_keybinding_tostring(kb);
     owl_fmtext_append_normal(fm, OWL_TABSTR);
-    owl_fmtext_append_normal(fm, buff);
-    owl_fmtext_append_spaces(fm, 11-strlen(buff));
+    owl_fmtext_append_normal(fm, kbstr);
+    owl_fmtext_append_spaces(fm, 11-strlen(kbstr));
+    g_free(kbstr);
     owl_fmtext_append_normal(fm, " - ");
     if (kb->desc && *kb->desc) {
       desc = kb->desc;
@@ -179,12 +173,11 @@ static void _owl_keymap_format_bindings(const owl_keymap *km, owl_fmtext *fm)
 
 /* NOTE: keyhandler has private access to the internals of keymap */
 
-int owl_keyhandler_init(owl_keyhandler *kh)
+void owl_keyhandler_init(owl_keyhandler *kh)
 {
-  if (0 != owl_dict_create(&kh->keymaps)) return(-1); 
+  owl_dict_create(&kh->keymaps);
   kh->active = NULL;
   owl_keyhandler_reset(kh);
-  return(0);
 }
 
 /* adds a new keymap */
@@ -197,7 +190,6 @@ owl_keymap *owl_keyhandler_create_and_add_keymap(owl_keyhandler *kh, const char 
 {
   owl_keymap *km;
   km = g_new(owl_keymap, 1);
-  if (!km) return NULL;
   owl_keymap_init(km, name, desc, default_fn, prealways_fn, postalways_fn);
   owl_keyhandler_add_keymap(kh, km);
   return km;
@@ -216,17 +208,10 @@ owl_keymap *owl_keyhandler_get_keymap(const owl_keyhandler *kh, const char *mapn
   return owl_dict_find_element(&kh->keymaps, mapname);
 }
 
-/* free the list with owl_cmddict_namelist_cleanup */
-void owl_keyhandler_get_keymap_names(const owl_keyhandler *kh, owl_list *l)
+CALLER_OWN GPtrArray *owl_keyhandler_get_keymap_names(const owl_keyhandler *kh)
 {
-  owl_dict_get_keys(&kh->keymaps, l);
+  return owl_dict_get_keys(&kh->keymaps);
 }
-
-void owl_keyhandler_keymap_namelist_cleanup(owl_list *l)
-{
-  owl_list_cleanup(l, g_free);
-}
-
 
 
 /* sets the active keymap, which will also reset any key state.
@@ -283,8 +268,8 @@ int owl_keyhandler_process(owl_keyhandler *kh, owl_input j)
    * through parents... TODO:  clean this up so we can pull
    * keyhandler and keymap apart.  */
   for (km=kh->active; km; km=km->parent) {
-    for (i=owl_list_get_size(&km->bindings)-1; i>=0; i--) {
-      kb = owl_list_get_element(&km->bindings, i);
+    for (i = km->bindings->len-1; i >= 0; i--) {
+      kb = km->bindings->pdata[i];
       match = owl_keybinding_match(kb, kh);
       if (match == 1) {		/* subset match */
 
@@ -321,8 +306,8 @@ int owl_keyhandler_process(owl_keyhandler *kh, owl_input j)
 
 void owl_keyhandler_invalidkey(owl_keyhandler *kh)
 {
-    char kbbuff[500];
-    owl_keybinding_stack_tostring(kh->kpstack, kh->kpstackpos+1, kbbuff, 500);
+    char *kbbuff = owl_keybinding_stack_tostring(kh->kpstack, kh->kpstackpos+1);
     owl_function_makemsg("'%s' is not a valid key in this context.", kbbuff);
+    g_free(kbbuff);
     owl_keyhandler_reset(kh);
 }

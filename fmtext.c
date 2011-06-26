@@ -6,9 +6,6 @@
 void owl_fmtext_init_null(owl_fmtext *f)
 {
   f->buff = g_string_new("");
-  f->default_attrs = OWL_FMTEXT_ATTR_NONE;
-  f->default_fgcolor = OWL_COLOR_DEFAULT;
-  f->default_bgcolor = OWL_COLOR_DEFAULT;
 }
 
 /* Clear the data from an fmtext, but don't deallocate memory. This
@@ -16,9 +13,6 @@ void owl_fmtext_init_null(owl_fmtext *f)
 void owl_fmtext_clear(owl_fmtext *f)
 {
   g_string_truncate(f->buff, 0);
-  f->default_attrs = OWL_FMTEXT_ATTR_NONE;
-  f->default_fgcolor = OWL_COLOR_DEFAULT;
-  f->default_bgcolor = OWL_COLOR_DEFAULT;
 }
 
 int owl_fmtext_is_format_char(gunichar c)
@@ -49,9 +43,9 @@ void owl_fmtext_append_attr(owl_fmtext *f, const char *text, char attr, short fg
   g_string_append(f->buff, text);
 
   /* Reset attributes */
-  if (bg) g_string_append(f->buff, OWL_FMTEXT_UTF8_BGDEFAULT);
-  if (fg) g_string_append(f->buff, OWL_FMTEXT_UTF8_FGDEFAULT);
-  if (a)  g_string_append(f->buff, OWL_FMTEXT_UTF8_ATTR_NONE);
+  if (bg) g_string_append_unichar(f->buff, OWL_FMTEXT_UC_BGDEFAULT);
+  if (fg) g_string_append_unichar(f->buff, OWL_FMTEXT_UC_FGDEFAULT);
+  if (a)  g_string_append_unichar(f->buff, OWL_FMTEXT_UC_ATTR | OWL_FMTEXT_UC_ATTR);
 }
 
 /* Append normal, uncolored text 'text' to 'f' */
@@ -61,7 +55,7 @@ void owl_fmtext_append_normal(owl_fmtext *f, const char *text)
 }
 
 /* Append normal, uncolored text specified by format string to 'f' */
-void owl_fmtext_appendf_normal(owl_fmtext *f, const char *fmt, ...)
+void G_GNUC_PRINTF(2, 3) owl_fmtext_appendf_normal(owl_fmtext *f, const char *fmt, ...)
 {
   va_list ap;
   char *buff;
@@ -97,29 +91,6 @@ void owl_fmtext_append_reverse(owl_fmtext *f, const char *text)
 void owl_fmtext_append_reversebold(owl_fmtext *f, const char *text)
 {
   owl_fmtext_append_attr(f, text, OWL_FMTEXT_ATTR_REVERSE | OWL_FMTEXT_ATTR_BOLD, OWL_COLOR_DEFAULT, OWL_COLOR_DEFAULT);
-}
-
-/* Add the attribute 'attr' to the default atts for the text in 'f' */
-void owl_fmtext_addattr(owl_fmtext *f, char attr)
-{
-  /* add the attribute to all text */
-  f->default_attrs |= attr;
-}
-
-/* Set the default foreground color for this fmtext to 'color'.
- * Only affects text that is colored default.
- */
-void owl_fmtext_colorize(owl_fmtext *f, int color)
-{
-  f->default_fgcolor = color;
-}
-
-/* Set the default foreground color for this fmtext to 'color'.
- * Only affects text that is colored default.
- */
-void owl_fmtext_colorizebg(owl_fmtext *f, int color)
-{
-  f->default_bgcolor = color;
 }
 
 /* Internal function. Parse attrbute character. */
@@ -159,29 +130,25 @@ static void _owl_fmtext_scan_attributes(const owl_fmtext *f, int start, char *at
  */
 static void _owl_fmtext_append_fmtext(owl_fmtext *f, const owl_fmtext *in, int start, int stop)
 {
-  int a = 0, fg = 0, bg = 0;
   char attr = 0;
   short fgcolor = OWL_COLOR_DEFAULT;
   short bgcolor = OWL_COLOR_DEFAULT;
 
   _owl_fmtext_scan_attributes(in, start, &attr, &fgcolor, &bgcolor);
-  if (attr != OWL_FMTEXT_ATTR_NONE) a=1;
-  if (fgcolor != OWL_COLOR_DEFAULT) fg=1;
-  if (bgcolor != OWL_COLOR_DEFAULT) bg=1;
 
-  if (a)
+  if (attr != OWL_FMTEXT_ATTR_NONE)
     g_string_append_unichar(f->buff, OWL_FMTEXT_UC_ATTR | attr);
-  if (fg)
+  if (fgcolor != OWL_COLOR_DEFAULT)
     g_string_append_unichar(f->buff, OWL_FMTEXT_UC_FGCOLOR | fgcolor);
-  if (bg)
+  if (bgcolor != OWL_COLOR_DEFAULT)
     g_string_append_unichar(f->buff, OWL_FMTEXT_UC_BGCOLOR | bgcolor);
 
   g_string_append_len(f->buff, in->buff->str+start, stop-start);
 
   /* Reset attributes */
-  g_string_append(f->buff, OWL_FMTEXT_UTF8_BGDEFAULT);
-  g_string_append(f->buff, OWL_FMTEXT_UTF8_FGDEFAULT);
-  g_string_append(f->buff, OWL_FMTEXT_UTF8_ATTR_NONE);
+  g_string_append_unichar(f->buff, OWL_FMTEXT_UC_BGDEFAULT);
+  g_string_append_unichar(f->buff, OWL_FMTEXT_UC_FGDEFAULT);
+  g_string_append_unichar(f->buff, OWL_FMTEXT_UC_ATTR | OWL_FMTEXT_UC_ATTR);
 }
 
 /* append fmtext 'in' to 'f' */
@@ -203,7 +170,7 @@ void owl_fmtext_append_spaces(owl_fmtext *f, int nspaces)
 /* Return a plain version of the fmtext.  Caller is responsible for
  * freeing the return
  */
-char *owl_fmtext_print_plain(const owl_fmtext *f)
+CALLER_OWN char *owl_fmtext_print_plain(const owl_fmtext *f)
 {
   return owl_strip_format_chars(f->buff->str);
 }
@@ -216,16 +183,9 @@ static void _owl_fmtext_wattrset(WINDOW *w, int attrs)
   if (attrs & OWL_FMTEXT_ATTR_UNDERLINE) wattron(w, A_UNDERLINE);
 }
 
-static void _owl_fmtext_update_colorpair(short fg, short bg, short *pair)
-{
-  if (owl_global_get_hascolors(&g)) {
-    *pair = owl_fmtext_get_colorpair(fg, bg);
-  }
-}
-
 static void _owl_fmtext_wcolor_set(WINDOW *w, short pair)
 {
-  if (owl_global_get_hascolors(&g)) {
+  if (has_colors()) {
       wcolor_set(w,pair,NULL);
       wbkgdset(w, COLOR_PAIR(pair));
   }
@@ -234,7 +194,7 @@ static void _owl_fmtext_wcolor_set(WINDOW *w, short pair)
 /* add the formatted text to the curses window 'w'.  The window 'w'
  * must already be initiatlized with curses
  */
-static void _owl_fmtext_curs_waddstr(const owl_fmtext *f, WINDOW *w, int do_search)
+static void _owl_fmtext_curs_waddstr(const owl_fmtext *f, WINDOW *w, int do_search, char default_attrs, short default_fgcolor, short default_bgcolor)
 {
   /* char *tmpbuff; */
   /* int position, trans1, trans2, trans3, len, lastsame; */
@@ -249,11 +209,11 @@ static void _owl_fmtext_curs_waddstr(const owl_fmtext *f, WINDOW *w, int do_sear
 
   s = f->buff->str;
   /* Set default attributes. */
-  attr = f->default_attrs;
-  fg = f->default_fgcolor;
-  bg = f->default_bgcolor;
+  attr = default_attrs;
+  fg = default_fgcolor;
+  bg = default_bgcolor;
   _owl_fmtext_wattrset(w, attr);
-  _owl_fmtext_update_colorpair(fg, bg, &pair);
+  pair = owl_fmtext_get_colorpair(fg, bg);
   _owl_fmtext_wcolor_set(w, pair);
 
   /* Find next possible format character. */
@@ -292,19 +252,17 @@ static void _owl_fmtext_curs_waddstr(const owl_fmtext *f, WINDOW *w, int do_sear
       waddstr(w, s);
       p[0] = tmp;
 
-      /* Deal with new attributes. Initialize to defaults, then
-	 process all consecutive formatting characters. */
-      attr = f->default_attrs;
-      fg = f->default_fgcolor;
-      bg = f->default_bgcolor;
+      /* Deal with new attributes. Process all consecutive formatting
+       * characters, and then apply defaults where relevant. */
       while (owl_fmtext_is_format_char(g_utf8_get_char(p))) {
 	_owl_fmtext_update_attributes(g_utf8_get_char(p), &attr, &fg, &bg);
 	p = g_utf8_next_char(p);
       }
-      _owl_fmtext_wattrset(w, attr | f->default_attrs);
-      if (fg == OWL_COLOR_DEFAULT) fg = f->default_fgcolor;
-      if (bg == OWL_COLOR_DEFAULT) bg = f->default_bgcolor;
-      _owl_fmtext_update_colorpair(fg, bg, &pair);
+      attr |= default_attrs;
+      if (fg == OWL_COLOR_DEFAULT) fg = default_fgcolor;
+      if (bg == OWL_COLOR_DEFAULT) bg = default_bgcolor;
+      _owl_fmtext_wattrset(w, attr);
+      pair = owl_fmtext_get_colorpair(fg, bg);
       _owl_fmtext_wcolor_set(w, pair);
 
       /* Advance to next non-formatting character. */
@@ -321,25 +279,20 @@ static void _owl_fmtext_curs_waddstr(const owl_fmtext *f, WINDOW *w, int do_sear
   wbkgdset(w, 0);
 }
 
-void owl_fmtext_curs_waddstr(const owl_fmtext *f, WINDOW *w)
+void owl_fmtext_curs_waddstr(const owl_fmtext *f, WINDOW *w, char default_attrs, short default_fgcolor, short default_bgcolor)
 {
-  _owl_fmtext_curs_waddstr(f, w, 1);
+  _owl_fmtext_curs_waddstr(f, w, 1, default_attrs, default_fgcolor, default_bgcolor);
 }
 
-void owl_fmtext_curs_waddstr_without_search(const owl_fmtext *f, WINDOW *w)
+void owl_fmtext_curs_waddstr_without_search(const owl_fmtext *f, WINDOW *w, char default_attrs, short default_fgcolor, short default_bgcolor)
 {
-  _owl_fmtext_curs_waddstr(f, w, 0);
+  _owl_fmtext_curs_waddstr(f, w, 0, default_attrs, default_fgcolor, default_bgcolor);
 }
 
 /* Expands tabs. Tabs are expanded as if given an initial indent of start. */
 void owl_fmtext_expand_tabs(const owl_fmtext *in, owl_fmtext *out, int start) {
   int col = start, numcopied = 0;
   char *ptr;
-
-  /* Copy the default attributes. */
-  out->default_attrs = in->default_attrs;
-  out->default_fgcolor = in->default_fgcolor;
-  out->default_bgcolor = in->default_bgcolor;
 
   for (ptr = in->buff->str;
        ptr < in->buff->str + in->buff->len;
@@ -386,11 +339,6 @@ int owl_fmtext_truncate_lines(const owl_fmtext *in, int aline, int lines, owl_fm
   
   /* ptr1 now holds the starting point */
 
-  /* copy the default attributes */
-  out->default_attrs = in->default_attrs;
-  out->default_fgcolor = in->default_fgcolor;
-  out->default_bgcolor = in->default_bgcolor;
-    
   /* copy in the next 'lines' lines */
   if (lines < 1) return(-1);
 
@@ -414,11 +362,6 @@ void _owl_fmtext_truncate_cols_internal(const owl_fmtext *in, int acol, int bcol
 {
   const char *ptr_s, *ptr_e, *ptr_c, *last;
   int col, st, padding, chwidth;
-
-  /* copy the default attributes */
-  out->default_attrs = in->default_attrs;
-  out->default_fgcolor = in->default_fgcolor;
-  out->default_bgcolor = in->default_bgcolor;
 
   last = in->buff->str + in->buff->len - 1;
   ptr_s = in->buff->str;
@@ -583,24 +526,10 @@ int owl_fmtext_num_bytes(const owl_fmtext *f)
   return f->buff->len;
 }
 
-/* set the charater at 'index' to be 'char'.  If index is out of
- * bounds don't do anything. If c or char at index is not ASCII, don't
- * do anything because it's not UTF-8 safe. */
-void owl_fmtext_set_char(owl_fmtext *f, int index, char ch)
-{
-  if ((index < 0) || (index > f->buff->len - 1)) return;
-  /* NOT ASCII*/
-  if (f->buff->str[index] & 0x80 || ch & 0x80) return;
-  f->buff->str[index] = ch;
-}
-
 /* Make a copy of the fmtext 'src' into 'dst' */
 void owl_fmtext_copy(owl_fmtext *dst, const owl_fmtext *src)
 {
   dst->buff = g_string_new(src->buff->str);
-  dst->default_attrs = src->default_attrs;
-  dst->default_fgcolor = src->default_fgcolor;
-  dst->default_bgcolor = src->default_bgcolor;
 }
 
 /* Search 'f' for the regex 're' for matches starting at
@@ -725,7 +654,6 @@ void owl_fmtext_append_ztext(owl_fmtext *f, const char *text)
         /* if it's a color read the color, set the current color and
            continue */
       } else if (!strcasecmp(buff, "@color") 
-                 && owl_global_get_hascolors(&g)
                  && owl_global_is_colorztext(&g)) {
         g_free(buff);
         txtptr+=7;
@@ -826,15 +754,14 @@ void owl_fmtext_append_ztext(owl_fmtext *f, const char *text)
  * joins the elements together with join_with. 
  * If format_fn is specified, passes it the list element value
  * and it will return a string which this needs to free. */
-void owl_fmtext_append_list(owl_fmtext *f, const owl_list *l, const char *join_with, char *(format_fn)(const char *))
+void owl_fmtext_append_list(owl_fmtext *f, const GPtrArray *l, const char *join_with, char *(format_fn)(const char *))
 {
-  int i, size;
+  int i;
   const char *elem;
   char *text;
 
-  size = owl_list_get_size(l);
-  for (i=0; i<size; i++) {
-    elem = owl_list_get_element(l,i);
+  for (i = 0; i < l->len; i++) {
+    elem = l->pdata[i];
     if (elem && format_fn) {
       text = format_fn(elem);
       if (text) {
@@ -844,7 +771,7 @@ void owl_fmtext_append_list(owl_fmtext *f, const owl_list *l, const char *join_w
     } else if (elem) {
       owl_fmtext_append_normal(f, elem);
     }
-    if ((i < size-1) && join_with) {
+    if ((i < l->len - 1) && join_with) {
       owl_fmtext_append_normal(f, join_with);
     }
   }
@@ -883,7 +810,7 @@ void owl_fmtext_reset_colorpairs(owl_colorpair_mgr *cpmgr)
       cpmgr->pairs[i][j] = -1;
     }
   }
-  if (owl_global_get_hascolors(&g)) {
+  if (has_colors()) {
     for(i = 0; i < 8; i++) {
       short fg, bg;
       if (i >= COLORS) continue;
@@ -898,6 +825,9 @@ short owl_fmtext_get_colorpair(int fg, int bg)
 {
   owl_colorpair_mgr *cpmgr;
   short pair;
+
+  if (!has_colors())
+    return 0;
 
   /* Sanity (Bounds) Check */
   if (fg > COLORS || fg < OWL_COLOR_DEFAULT) fg = OWL_COLOR_DEFAULT;
@@ -915,7 +845,7 @@ short owl_fmtext_get_colorpair(int fg, int bg)
   pair = cpmgr->pairs[fg+1][bg+1];
   if (!(pair != -1 && pair < cpmgr->next)) {
     /* If we didn't find a pair, search for a free one to assign. */
-    pair = (cpmgr->next < COLOR_PAIRS) ? cpmgr->next : -1;
+    pair = (cpmgr->next < owl_util_get_colorpairs()) ? cpmgr->next : -1;
     if (pair != -1) {
       /* We found a free pair, initialize it. */
       init_pair(pair, fg, bg);

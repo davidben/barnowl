@@ -60,7 +60,7 @@ static gunichar owl_editwin_get_char_at_point(owl_editwin *e);
 static int owl_editwin_replace_internal(owl_editwin *e, int replace, const char *s);
 static const char *oe_copy_buf(owl_editwin *e, const char *buf, int len);
 static int oe_copy_region(owl_editwin *e);
-static char *oe_chunk(owl_editwin *e, int start, int end);
+static CALLER_OWN char *oe_chunk(owl_editwin *e, int start, int end);
 static void oe_destroy_cbdata(owl_editwin *e);
 static void oe_dirty(owl_editwin *e);
 static void oe_window_resized(owl_window *w, owl_editwin *e);
@@ -69,7 +69,7 @@ static void oe_window_resized(owl_window *w, owl_editwin *e);
 
 #define WHITESPACE " \n\t"
 
-static owl_editwin *owl_editwin_allocate(void)
+static CALLER_OWN owl_editwin *owl_editwin_allocate(void)
 {
   owl_editwin *e = g_new0(owl_editwin, 1);
   e->refcount = 1;
@@ -141,7 +141,7 @@ static void _owl_editwin_init(owl_editwin *e,
   e->echochar='\0';
 }
 
-owl_editwin *owl_editwin_new(owl_window *win, int winlines, int wincols, int style, owl_history *hist)
+CALLER_OWN owl_editwin *owl_editwin_new(owl_window *win, int winlines, int wincols, int style, owl_history *hist)
 {
   owl_editwin *e = owl_editwin_allocate();
 
@@ -300,9 +300,7 @@ void owl_editwin_clear(owl_editwin *e)
   char echochar=e->echochar;
 
   if (lock > 0) {
-    locktext = g_new(char, lock+1);
-    strncpy(locktext, e->buff, lock);
-    locktext[lock] = 0;
+    locktext = g_strndup(e->buff, lock);
   }
 
   g_free(e->buff);
@@ -318,8 +316,7 @@ void owl_editwin_clear(owl_editwin *e)
     owl_editwin_set_echochar(e, echochar);
   }
 
-  if (locktext)
-    g_free(locktext);
+  g_free(locktext);
 
   oe_set_index(e, lock);
 }
@@ -1058,7 +1055,7 @@ void owl_editwin_delete_to_endofline(owl_editwin *e)
 
 void owl_editwin_yank(owl_editwin *e)
 {
-  char *killbuf = owl_global_get_kill_buffer(&g);
+  const char *killbuf = owl_global_get_kill_buffer(&g);
 
   if (killbuf != NULL)
     owl_editwin_replace(e, 0, killbuf);
@@ -1066,19 +1063,8 @@ void owl_editwin_yank(owl_editwin *e)
 
 static const char *oe_copy_buf(owl_editwin *e, const char *buf, int len)
 {
-  char *p;
-  char *killbuf = owl_global_get_kill_buffer(&g);
-
-  p = g_new(char, len + 1);
-
-  if (p != NULL) {
-    g_free(killbuf);
-    memcpy(p, buf, len);
-    p[len] = 0;
-    owl_global_set_kill_buffer(&g,p);
-  }
-
-  return p;
+  owl_global_set_kill_buffer(&g, buf, len);
+  return owl_global_get_kill_buffer(&g);
 }
 
 static int oe_copy_region(owl_editwin *e)
@@ -1382,7 +1368,7 @@ const char *owl_editwin_get_text(owl_editwin *e)
   return(e->buff+e->lock);
 }
 
-char *owl_editwin_get_region(owl_editwin *e)
+CALLER_OWN char *owl_editwin_get_region(owl_editwin *e)
 {
   int start, end;
   start = e->index;
@@ -1401,7 +1387,7 @@ int owl_editwin_get_echochar(owl_editwin *e)
   return e->echochar;
 }
 
-static char *oe_chunk(owl_editwin *e, int start, int end)
+static CALLER_OWN char *oe_chunk(owl_editwin *e, int start, int end)
 {
   char *p;
   

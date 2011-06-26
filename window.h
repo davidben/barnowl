@@ -4,17 +4,7 @@
 #include <glib.h>
 #include <glib-object.h>
 
-#ifdef HAVE_STDBOOL_H
 #include <stdbool.h>
-#else
-#ifndef HAVE__BOOL
-#define _Bool signed char
-#endif
-#define bool _Bool
-#define false 0
-#define true 1
-#define __bool_true_false_are_defined 1
-#endif  /* HAVE_STDBOOL_H */
 
 G_BEGIN_DECLS
 
@@ -70,6 +60,8 @@ void owl_window_get_position(owl_window *w, int *nlines, int *ncols, int *begin_
 void owl_window_set_position(owl_window *w, int nlines, int ncols, int begin_y, int begin_x);
 void owl_window_move(owl_window *w, int begin_y, int begin_x);
 void owl_window_resize(owl_window *w, int nlines, int ncols);
+
+GSource *owl_window_redraw_source_new(void);
 
 /* Standard callback functions in windowcb.c */
 

@@ -22,7 +22,7 @@ void owl_perl_xs_init(pTHX) /* noproto */
 }
 
 
-SV *owl_new_sv(const char * str)
+CALLER_OWN SV *owl_new_sv(const char * str)
 {
   SV *ret = newSVpv(str, 0);
   if (is_utf8_string((const U8 *)str, strlen(str))) {
@@ -35,7 +35,7 @@ SV *owl_new_sv(const char * str)
   return ret;
 }
 
-AV *owl_new_av(const owl_list *l, SV *(*to_sv)(const void *))
+CALLER_OWN AV *owl_new_av(const GPtrArray *l, SV *(*to_sv)(const void *))
 {
   AV *ret;
   int i;
@@ -43,18 +43,18 @@ AV *owl_new_av(const owl_list *l, SV *(*to_sv)(const void *))
 
   ret = newAV();
 
-  for (i = 0; i < owl_list_get_size(l); i++) {
-    element = owl_list_get_element(l, i);
+  for (i = 0; i < l->len; i++) {
+    element = l->pdata[i];
     av_push(ret, to_sv(element));
   }
 
   return ret;
 }
 
-HV *owl_new_hv(const owl_dict *d, SV *(*to_sv)(const void *))
+CALLER_OWN HV *owl_new_hv(const owl_dict *d, SV *(*to_sv)(const void *))
 {
   HV *ret;
-  owl_list l;
+  GPtrArray *keys;
   const char *key;
   void *element;
   int i;
@@ -62,23 +62,23 @@ HV *owl_new_hv(const owl_dict *d, SV *(*to_sv)(const void *))
   ret = newHV();
 
   /* TODO: add an iterator-like interface to owl_dict */
-  owl_dict_get_keys(d, &l);
-  for (i = 0; i < owl_list_get_size(&l); i++) {
-    key = owl_list_get_element(&l, i);
+  keys = owl_dict_get_keys(d);
+  for (i = 0; i < keys->len; i++) {
+    key = keys->pdata[i];
     element = owl_dict_find_element(d, key);
     (void)hv_store(ret, key, strlen(key), to_sv(element), 0);
   }
-  owl_list_cleanup(&l, g_free);
+  owl_ptr_array_free(keys, g_free);
 
   return ret;
 }
 
-SV *owl_perlconfig_message2hashref(const owl_message *m)
+CALLER_OWN SV *owl_perlconfig_message2hashref(const owl_message *m)
 {
   return SvREFCNT_inc(m);
 }
 
-SV *owl_perlconfig_curmessage2hashref(void)
+CALLER_OWN SV *owl_perlconfig_curmessage2hashref(void)
 {
   owl_message *m = owl_global_get_current_message(&g);
   if(m == NULL) {
@@ -87,14 +87,14 @@ SV *owl_perlconfig_curmessage2hashref(void)
   return owl_perlconfig_message2hashref(m);
 }
 
-owl_message * owl_perlconfig_hashref2message(SV *msg)
+CALLER_OWN owl_message * owl_perlconfig_hashref2message(SV *msg)
 {
   return (owl_message*)SvREFCNT_inc(msg);
 }
 
 /* Calls in a scalar context, passing it a hash reference.
    If return value is non-null, caller must free. */
-char *owl_perlconfig_call_with_message(const char *subname, const owl_message *m)
+CALLER_OWN char *owl_perlconfig_call_with_message(const char *subname, const owl_message *m)
 {
   dSP ;
   int count;
@@ -143,7 +143,7 @@ char *owl_perlconfig_call_with_message(const char *subname, const owl_message *m
 /* Calls a method on a perl object representing a message.
    If the return value is non-null, the caller must free it.
  */
-char * owl_perlconfig_message_call_method(const owl_message *m, const char *method, int argc, const char ** argv)
+CALLER_OWN char *owl_perlconfig_message_call_method(const owl_message *m, const char *method, int argc, const char **argv)
 {
   dSP;
   unsigned int count, i;
@@ -192,8 +192,8 @@ char * owl_perlconfig_message_call_method(const owl_message *m, const char *meth
   return out;
 }
 
-
-char *owl_perlconfig_initperl(const char * file, int *Pargc, char ***Pargv, char *** Penv)
+/* caller must free result, if not NULL */
+CALLER_OWN char *owl_perlconfig_initperl(const char *file, int *Pargc, char ***Pargv, char ***Penv)
 {
   int ret;
   PerlInterpreter *p;
@@ -247,6 +247,8 @@ char *owl_perlconfig_initperl(const char * file, int *Pargc, char ***Pargv, char
     sv_setpv(cfg, file);
   }
 
+  sv_setpv(get_sv("BarnOwl::VERSION", TRUE), OWL_VERSION_STRING);
+
   /* Add the system lib path to @INC */
   inc = get_av("INC", 0);
   path = g_strdup_printf("%s/lib", owl_get_datadir());
@@ -277,7 +279,7 @@ int owl_perlconfig_is_function(const char *fn) {
 }
 
 /* caller is responsible for freeing returned string */
-char *owl_perlconfig_execute(const char *line)
+CALLER_OWN char *owl_perlconfig_execute(const char *line)
 {
   STRLEN len;
   SV *response;
@@ -309,7 +311,7 @@ void owl_perlconfig_getmsg(const owl_message *m, const char *subname)
     ptr = owl_perlconfig_call_with_message(subname?subname
                                            :"BarnOwl::_receive_msg_legacy_wrap", m);
   }
-  if (ptr) g_free(ptr);
+  g_free(ptr);
 }
 
 /* Called on all new messages; receivemsg is only called on incoming ones */
@@ -320,7 +322,7 @@ void owl_perlconfig_newmsg(const owl_message *m, const char *subname)
     ptr = owl_perlconfig_call_with_message(subname?subname
                                            :"BarnOwl::Hooks::_new_msg", m);
   }
-  if (ptr) g_free(ptr);
+  g_free(ptr);
 }
 
 void owl_perlconfig_new_command(const char *name)
@@ -346,7 +348,8 @@ void owl_perlconfig_new_command(const char *name)
   LEAVE;
 }
 
-char *owl_perlconfig_perlcmd(const owl_cmd *cmd, int argc, const char *const *argv)
+/* caller must free the result */
+CALLER_OWN char *owl_perlconfig_perlcmd(const owl_cmd *cmd, int argc, const char *const *argv)
 {
   int i, count;
   char * ret = NULL;
@@ -389,11 +392,6 @@ void owl_perlconfig_cmd_cleanup(owl_cmd *cmd)
   SvREFCNT_dec(cmd->cmd_perl);
 }
 
-void owl_perlconfig_io_dispatch_destroy(const owl_io_dispatch *d)
-{
-  SvREFCNT_dec(d->data);
-}
-
 void owl_perlconfig_edit_callback(owl_editwin *e)
 {
   SV *cb = owl_editwin_get_cbdata(e);
@@ -429,68 +427,6 @@ void owl_perlconfig_dec_refcnt(void *data)
   SvREFCNT_dec(v);
 }
 
-void owl_perlconfig_io_dispatch(const owl_io_dispatch *d, void *data)
-{
-  SV *cb = data;
-  dSP;
-  if(cb == NULL) {
-    owl_function_error("Perl callback is NULL!");
-    return;
-  }
-
-  ENTER;
-  SAVETMPS;
-
-  PUSHMARK(SP);
-  PUTBACK;
-
-  call_sv(cb, G_DISCARD|G_EVAL);
-
-  if(SvTRUE(ERRSV)) {
-    owl_function_error("%s", SvPV_nolen(ERRSV));
-  }
-
-  FREETMPS;
-  LEAVE;
-}
-
-void owl_perlconfig_perl_timer(owl_timer *t, void *data)
-{
-  dSP;
-  SV *obj = data;
-
-  if(!SvROK(obj)) {
-    return;
-  }
-
-  ENTER;
-  SAVETMPS;
-
-  PUSHMARK(SP);
-  XPUSHs(obj);
-  PUTBACK;
-
-  call_method("do_callback", G_DISCARD|G_EVAL);
-
-  SPAGAIN;
-
-  if (SvTRUE(ERRSV)) {
-    owl_function_error("Error in callback: '%s'", SvPV_nolen(ERRSV));
-    sv_setsv (ERRSV, &PL_sv_undef);
-  }
-
-  PUTBACK;
-  FREETMPS;
-  LEAVE;
-}
-
-void owl_perlconfig_perl_timer_destroy(owl_timer *t)
-{
-  if(SvOK((SV*)t->data)) {
-    SvREFCNT_dec((SV*)t->data);
-  }
-}
-
 SV * owl_perl_new(char *class)
 {
   return owl_perl_new_argv(class, NULL, 0);
@@ -519,30 +455,6 @@ void owl_perl_savetmps(void) {
 }
 
 void owl_perl_freetmps(void) {
-  FREETMPS;
-  LEAVE;
-}
-
-void owl_perlconfig_do_dispatch(owl_io_dispatch *d)
-{
-  SV *cb = (SV*)d->data;
-  dSP;
-  if(cb == NULL) {
-    owl_function_error("Perl callback is NULL!");
-  }
-
-  ENTER;
-  SAVETMPS;
-
-  PUSHMARK(SP);
-  PUTBACK;
-  
-  call_sv(cb, G_DISCARD|G_EVAL);
-
-  if(SvTRUE(ERRSV)) {
-    owl_function_error("%s", SvPV_nolen(ERRSV));
-  }
-
   FREETMPS;
   LEAVE;
 }

@@ -16,6 +16,7 @@ static void sepbar_redraw(owl_window *w, WINDOW *sepwin, void *user_data)
   owl_view_iterator *iter;
   int x, y;
   const char *foo, *appendtosepbar;
+  int cur_numlines, cur_totallines;
 
   iter = owl_view_iterator_delete_later(owl_view_iterator_new());
 
@@ -50,14 +51,6 @@ static void sepbar_redraw(owl_window *w, WINDOW *sepwin, void *user_data)
   if (strcmp(foo, owl_global_get_view_home(&g)))
       wattron(sepwin, A_REVERSE);
 
-  if (owl_mainwin_is_curmsg_truncated(owl_global_get_mainwin(&g))) {
-    getyx(sepwin, y, x);
-    wmove(sepwin, y, x+2);
-    wattron(sepwin, A_BOLD);
-    waddstr(sepwin, " <truncated> ");
-    wattroff(sepwin, A_BOLD);
-  }
-
   owl_view_iterator_clone(iter, owl_mainwin_get_last_msg(owl_global_get_mainwin(&g)));
   if (owl_view_iterator_is_valid(iter)
       && !owl_view_iterator_is_at_end(iter)) {
@@ -89,6 +82,19 @@ static void sepbar_redraw(owl_window *w, WINDOW *sepwin, void *user_data)
     wattron(sepwin, A_REVERSE);
     wattroff(sepwin, A_BOLD);
   }
+
+/*
+FIXME!!!
+  if (owl_mainwin_is_curmsg_truncated(owl_global_get_mainwin(&g))) {
+    getyx(sepwin, y, x);
+    wmove(sepwin, y, x+2);
+    wattron(sepwin, A_BOLD);
+    cur_numlines = owl_global_get_curmsg_vert_offset(&g) + 1;
+    cur_totallines = owl_message_get_numlines(owl_view_get_element(v, owl_global_get_curmsg(&g)));
+    wprintw(sepwin, " <truncated: %d/%d> ", cur_numlines, cur_totallines);
+    wattroff(sepwin, A_BOLD);
+  }
+*/
 
   if (owl_global_get_curmsg_vert_offset(&g)) {
     getyx(sepwin, y, x);

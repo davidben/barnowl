@@ -11,7 +11,7 @@ static void owl_viewwin_set_window(owl_viewwin *v, owl_window *w);
 /* Create a viewwin.  'win' is an already initialized owl_window that
  * will be used by the viewwin
  */
-owl_viewwin *owl_viewwin_new_text(owl_window *win, const char *text)
+CALLER_OWN owl_viewwin *owl_viewwin_new_text(owl_window *win, const char *text)
 {
   owl_viewwin *v = g_new0(owl_viewwin, 1);
   owl_fmtext_init_null(&(v->fmtext));
@@ -33,7 +33,7 @@ owl_viewwin *owl_viewwin_new_text(owl_window *win, const char *text)
 /* Create a viewwin.  'win' is an already initialized owl_window that
  * will be used by the viewwin
  */
-owl_viewwin *owl_viewwin_new_fmtext(owl_window *win, const owl_fmtext *fmtext)
+CALLER_OWN owl_viewwin *owl_viewwin_new_fmtext(owl_window *win, const owl_fmtext *fmtext)
 {
   char *text;
   owl_viewwin *v = g_new0(owl_viewwin, 1);
@@ -105,7 +105,7 @@ static void owl_viewwin_redraw_content(owl_window *w, WINDOW *curswin, void *use
   owl_fmtext_truncate_lines(&(v->fmtext), v->topline, winlines, &fm1);
   owl_fmtext_truncate_cols(&fm1, v->rightshift, wincols-1+v->rightshift, &fm2);
 
-  owl_fmtext_curs_waddstr(&fm2, curswin);
+  owl_fmtext_curs_waddstr(&fm2, curswin, OWL_FMTEXT_ATTR_NONE, OWL_COLOR_DEFAULT, OWL_COLOR_DEFAULT);
 
   owl_fmtext_cleanup(&fm1);
   owl_fmtext_cleanup(&fm2);
@@ -149,7 +149,7 @@ char *owl_viewwin_command_search(owl_viewwin *v, int argc, const char *const *ar
   }
 
   if (!owl_viewwin_search(v, owl_global_get_search_re(&g), consider_current, direction))
-    owl_function_error("No more matches");
+    owl_function_makemsg("No more matches");
   return NULL;
 }
 
@@ -171,7 +171,7 @@ static void owl_viewwin_callback_search(owl_editwin *e)
   }
   if (!owl_viewwin_search(data->v, owl_global_get_search_re(&g),
                           consider_current, data->direction))
-    owl_function_error("No matches");
+    owl_function_makemsg("No matches");
 }
 
 char *owl_viewwin_command_start_search(owl_viewwin *v, int argc, const char *const *argv, const char *buff)
@@ -236,7 +236,7 @@ void owl_viewwin_deactivate_editcontext(owl_context *ctx) {
   owl_viewwin_set_typwin_inactive(v);
 }
 
-owl_editwin *owl_viewwin_set_typwin_active(owl_viewwin *v, owl_history *hist) {
+CALLER_OWN owl_editwin *owl_viewwin_set_typwin_active(owl_viewwin *v, owl_history *hist) {
   int lines, cols;
   owl_editwin *cmdline;
   if (v->cmdwin)

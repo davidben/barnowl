@@ -112,11 +112,13 @@ void owl_aim_init(void)
      
 }
 
-void owl_aim_send_nop(owl_timer *t, void *data) {
-    if(owl_global_is_doaimevents(&g)) {
-        aim_session_t *sess = owl_global_get_aimsess(&g);
-        aim_flap_nop(sess, aim_getconn_type(sess, AIM_CONN_TYPE_BOS));
-    }
+gboolean owl_aim_send_nop(gpointer data) {
+  owl_global *g = data;
+  if (owl_global_is_doaimevents(g)) {
+    aim_session_t *sess = owl_global_get_aimsess(g);
+    aim_flap_nop(sess, aim_getconn_type(sess, AIM_CONN_TYPE_BOS));
+  }
+  return TRUE;
 }
 
 
@@ -182,14 +184,16 @@ int owl_aim_login(const char *screenname, const char *password)
   aim_request_login(sess, conn, screenname);
   owl_function_debugmsg("owl_aim_login: connecting");
 
-  g.aim_nop_timer = owl_select_add_timer("owl_aim_send_nop", 30, 30, owl_aim_send_nop, NULL, NULL);
+  g.aim_nop_timer = g_timeout_add_seconds(30, owl_aim_send_nop, &g);
 
   return(0);
 }
 
-static void owl_aim_unset_ignorelogin(owl_timer *t, void *data)
+static gboolean owl_aim_unset_ignorelogin(void *data)
 {
-    owl_global_unset_ignore_aimlogin(&g);
+  owl_global *g = data;
+  owl_global_unset_ignore_aimlogin(g);
+  return FALSE;  /* only run once. */
 }
 
 /* stuff to run once login has been successful */
@@ -208,9 +212,8 @@ void owl_aim_successful_login(const char *screenname)
 
   /* start the ingorelogin timer */
   owl_global_set_ignore_aimlogin(&g);
-  owl_select_add_timer("owl_aim_unset_ignorelogin",
-                       owl_global_get_aim_ignorelogin_timer(&g),
-                       0, owl_aim_unset_ignorelogin, NULL, NULL);
+  g_timeout_add_seconds(owl_global_get_aim_ignorelogin_timer(&g),
+                        owl_aim_unset_ignorelogin, &g);
 
   /* aim_ssi_setpresence(owl_global_get_aimsess(&g), 0x00000400); */
   /* aim_bos_setidle(owl_global_get_aimsess(&g), owl_global_get_bosconn(&g), 5000); */
@@ -224,7 +227,10 @@ void owl_aim_logout(void)
   if (owl_global_is_aimloggedin(&g)) owl_function_adminmsg("", "Logged out of AIM");
   owl_global_set_aimnologgedin(&g);
   owl_global_set_no_doaimevents(&g);
-  owl_select_remove_timer(g.aim_nop_timer);
+  if (g.aim_nop_timer) {
+    g_source_remove(g.aim_nop_timer);
+    g.aim_nop_timer = 0;
+  }
 }
 
 void owl_aim_logged_out(void)
@@ -243,7 +249,10 @@ void owl_aim_login_error(const char *message)
   owl_function_beep();
   owl_global_set_aimnologgedin(&g);
   owl_global_set_no_doaimevents(&g);
-  owl_select_remove_timer(g.aim_nop_timer);
+  if (g.aim_nop_timer) {
+    g_source_remove(g.aim_nop_timer);
+    g.aim_nop_timer = 0;
+  }
 }
 
 /*
@@ -427,7 +436,7 @@ int owl_aim_chat_sendmsg(const char *chatroom, const char *msg)
 }
 
 /* caller must free the return */
-char *owl_aim_normalize_screenname(const char *in)
+CALLER_OWN char *owl_aim_normalize_screenname(const char *in)
 {
   char *out;
   int i, j, k;
@@ -445,15 +454,13 @@ char *owl_aim_normalize_screenname(const char *in)
   return(out);
 }
 
-int owl_aim_process_events(void)
+int owl_aim_process_events(aim_session_t *aimsess)
 {
-  aim_session_t *aimsess;
   aim_conn_t *waitingconn = NULL;
   struct timeval tv;
   int selstat = 0;
   struct owlfaim_priv *priv;
 
-  aimsess=owl_global_get_aimsess(&g);
   priv = aimsess->aux_data;
 
   /* do a select without blocking */
@@ -1431,7 +1438,7 @@ static int faimtest_parse_searchreply(aim_session_t *sess, aim_frame_t *fr, ...)
   va_list ap;
   const char *address, *SNs;
   int num, i;
-  owl_list list;
+  GPtrArray *list;
   
   va_start(ap, fr);
   address = va_arg(ap, const char *);
@@ -1439,16 +1446,16 @@ static int faimtest_parse_searchreply(aim_session_t *sess, aim_frame_t *fr, ...)
   SNs = va_arg(ap, const char *);
   va_end(ap);
 
-  owl_list_create(&list);
+  list = g_ptr_array_new();
   
   owl_function_debugmsg("faimtest_parse_searchreply: E-Mail Search Results for %s: ", address);
   for (i=0; i<num; i++) {
     owl_function_debugmsg("  %s", &SNs[i*(MAXSNLEN+1)]);
-    owl_list_append_element(&list, (void *)&SNs[i*(MAXSNLEN+1)]);
+    g_ptr_array_add(list, (void *)&SNs[i*(MAXSNLEN+1)]);
   }
-  owl_function_aimsearch_results(address, &list);
-  owl_list_cleanup(&list, NULL);
-  return(1);
+  owl_function_aimsearch_results(address, list);
+  g_ptr_array_free(list, true);
+  return 1;
 }
 
 static int faimtest_parse_searcherror(aim_session_t *sess, aim_frame_t *fr, ...)
@@ -1794,9 +1801,114 @@ void chat_redirect(aim_session_t *sess, struct aim_redirect_data *redir)
   return;	
 }
 
-void owl_process_aim(void)
+typedef struct _owl_aim_event_source { /*noproto*/
+  GSource source;
+  aim_session_t *sess;
+  GPtrArray *fds;
+} owl_aim_event_source;
+
+static void truncate_pollfd_list(owl_aim_event_source *event_source, int len)
 {
-  if (owl_global_is_doaimevents(&g)) {
-    owl_aim_process_events();
+  GPollFD *fd;
+  int i;
+  if (len < event_source->fds->len)
+    owl_function_debugmsg("Truncating AIM PollFDs to %d, was %d", len, event_source->fds->len);
+  for (i = len; i < event_source->fds->len; i++) {
+    fd = event_source->fds->pdata[i];
+    g_source_remove_poll(&event_source->source, fd);
+    g_free(fd);
   }
+  g_ptr_array_remove_range(event_source->fds, len, event_source->fds->len - len);
+}
+
+static gboolean owl_aim_event_source_prepare(GSource *source, int *timeout)
+{
+  owl_aim_event_source *event_source = (owl_aim_event_source*)source;
+  aim_conn_t *cur;
+  GPollFD *fd;
+  int i;
+
+  /* AIM HACK:
+   *
+   *  The problem - I'm not sure where to hook into the owl/faim
+   *  interface to keep track of when the AIM socket(s) open and
+   *  close. In particular, the bosconn thing throws me off. So,
+   *  rather than register particular dispatchers for AIM, I look up
+   *  the relevant FDs and add them to select's watch lists, then
+   *  check for them individually before moving on to the other
+   *  dispatchers. --asedeno
+   */
+  i = 0;
+  for (cur = event_source->sess->connlist; cur; cur = cur->next) {
+    if (cur->fd != -1) {
+      /* Add new GPollFDs as necessary. */
+      if (i == event_source->fds->len) {
+	fd = g_new0(GPollFD, 1);
+	g_ptr_array_add(event_source->fds, fd);
+	g_source_add_poll(source, fd);
+        owl_function_debugmsg("Allocated new AIM PollFD, len = %d", event_source->fds->len);
+      }
+      fd = event_source->fds->pdata[i];
+      fd->fd = cur->fd;
+      fd->events |= G_IO_IN | G_IO_HUP | G_IO_ERR;
+      if (cur->status & AIM_CONN_STATUS_INPROGRESS) {
+        /* Yes, we're checking writable sockets here. Without it, AIM
+           login is really slow. */
+	fd->events |= G_IO_OUT;
+      }
+      i++;
+    }
+  }
+  /* If the number of GPollFDs went down, clean up. */
+  truncate_pollfd_list(event_source, i);
+
+  *timeout = -1;
+  return FALSE;
+}
+
+static gboolean owl_aim_event_source_check(GSource *source)
+{
+  owl_aim_event_source *event_source = (owl_aim_event_source*)source;
+  int i;
+
+  for (i = 0; i < event_source->fds->len; i++) {
+    GPollFD *fd = event_source->fds->pdata[i];
+    if (fd->revents & fd->events)
+      return TRUE;
+  }
+  return FALSE;
+}
+
+static gboolean owl_aim_event_source_dispatch(GSource *source, GSourceFunc callback, gpointer user_data)
+{
+  owl_aim_event_source *event_source = (owl_aim_event_source*)source;
+  owl_aim_process_events(event_source->sess);
+  return TRUE;
+}
+
+static void owl_aim_event_source_finalize(GSource *source)
+{
+  owl_aim_event_source *event_source = (owl_aim_event_source*)source;
+  truncate_pollfd_list(event_source, 0);
+  g_ptr_array_free(event_source->fds, TRUE);
+}
+
+static GSourceFuncs aim_event_funcs = {
+  owl_aim_event_source_prepare,
+  owl_aim_event_source_check,
+  owl_aim_event_source_dispatch,
+  owl_aim_event_source_finalize,
+};
+
+GSource *owl_aim_event_source_new(aim_session_t *sess)
+{
+  GSource *source;
+  owl_aim_event_source *event_source;
+
+  source = g_source_new(&aim_event_funcs, sizeof(owl_aim_event_source));
+  event_source = (owl_aim_event_source *)source;
+  event_source->sess = sess;
+  /* TODO: When we depend on glib 2.22+, use g_ptr_array_new_with_free_func. */
+  event_source->fds = g_ptr_array_new();
+  return source;
 }

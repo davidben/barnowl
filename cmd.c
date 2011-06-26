@@ -4,56 +4,44 @@
 #include <unistd.h>
 #include "owl.h"
 
-extern const owl_cmd commands_to_init[];
-
 /**************************************************************************/
 /***************************** COMMAND DICT *******************************/
 /**************************************************************************/
 
-int owl_cmddict_setup(owl_cmddict *cd) {
-  if (0 != owl_cmddict_init(cd)) return(-1);
-  if (0 != owl_cmddict_add_from_list(cd, commands_to_init)) return(-1);
-  return(0);
+void owl_cmddict_setup(owl_cmddict *cd)
+{
+  owl_cmddict_init(cd);
+  owl_cmd_add_defaults(cd);
 }
 
-int owl_cmddict_init(owl_cmddict *cd) {
-  if (owl_dict_create(cd)) return(-1);
-  return(0);
+void owl_cmddict_init(owl_cmddict *cd) {
+  owl_dict_create(cd);
 }
 
 /* for bulk initialization at startup */
-int owl_cmddict_add_from_list(owl_cmddict *cd, const owl_cmd *cmds) {
+void owl_cmddict_add_from_list(owl_cmddict *cd, const owl_cmd *cmds)
+{
   const owl_cmd *cur;
-  int ret = 0;
   for (cur = cmds; cur->name != NULL; cur++) {
-    ret = owl_cmddict_add_cmd(cd, cur);
-    if (ret < 0) break;
+    owl_cmddict_add_cmd(cd, cur);
   }
-  return ret;
 }
 
-/* free the list with owl_cmddict_namelist_cleanup */
-void owl_cmddict_get_names(const owl_cmddict *d, owl_list *l) {
-  owl_dict_get_keys(d, l);
+GPtrArray *owl_cmddict_get_names(const owl_cmddict *d) {
+  return owl_dict_get_keys(d);
 }
 
 const owl_cmd *owl_cmddict_find(const owl_cmddict *d, const char *name) {
   return owl_dict_find_element(d, name);
 }
 
-void owl_cmddict_namelist_cleanup(owl_list *l)
-{
-  owl_list_cleanup(l, g_free);
-}
-
 /* creates a new command alias */
-int owl_cmddict_add_alias(owl_cmddict *cd, const char *alias_from, const char *alias_to) {
+void owl_cmddict_add_alias(owl_cmddict *cd, const char *alias_from, const char *alias_to) {
   owl_cmd *cmd;
   cmd = g_new(owl_cmd, 1);
   owl_cmd_create_alias(cmd, alias_from, alias_to);
   owl_perlconfig_new_command(cmd->name);
   owl_dict_insert_element(cd, cmd->name, cmd, (void (*)(void *))owl_cmd_delete);
-  return(0);
 }
 
 int owl_cmddict_add_cmd(owl_cmddict *cd, const owl_cmd * cmd) {
@@ -66,7 +54,9 @@ int owl_cmddict_add_cmd(owl_cmddict *cd, const owl_cmd * cmd) {
   return owl_dict_insert_element(cd, newcmd->name, newcmd, (void (*)(void *))owl_cmd_delete);
 }
 
-char *_owl_cmddict_execute(const owl_cmddict *cd, const owl_context *ctx, const char *const *argv, int argc, const char *buff) {
+/* caller must free the return */
+CALLER_OWN char *_owl_cmddict_execute(const owl_cmddict *cd, const owl_context *ctx, const char *const *argv, int argc, const char *buff)
+{
   char *retval = NULL;
   const owl_cmd *cmd;
 
@@ -81,48 +71,40 @@ char *_owl_cmddict_execute(const owl_cmddict *cd, const owl_context *ctx, const 
   return retval;
 }
 
-char *owl_cmddict_execute(const owl_cmddict *cd, const owl_context *ctx, const char *cmdbuff) {
+/* caller must free the return */
+CALLER_OWN char *owl_cmddict_execute(const owl_cmddict *cd, const owl_context *ctx, const char *cmdbuff)
+{
   char **argv;
   int argc;
-  char *tmpbuff;
   char *retval = NULL;
 
-  tmpbuff=g_strdup(cmdbuff);
-  argv=owl_parseline(tmpbuff, &argc);
-  if (argc < 0) {
-    g_free(tmpbuff);
+  argv = owl_parseline(cmdbuff, &argc);
+  if (argv == NULL) {
     owl_function_makemsg("Unbalanced quotes");
     return NULL;
   } 
   
   if (argc < 1) {
-    owl_parse_delete(argv, argc);
-    g_free(tmpbuff);
+    g_strfreev(argv);
     return NULL;
   }
 
   retval = _owl_cmddict_execute(cd, ctx, strs(argv), argc, cmdbuff);
 
-  owl_parse_delete(argv, argc);
-  g_free(tmpbuff);
+  g_strfreev(argv);
   return retval;
 }
 
-char *owl_cmddict_execute_argv(const owl_cmddict *cd, const owl_context *ctx, const char *const *argv, int argc) {
-  GString *buf = g_string_new("");
-  int i;
-  char *retval;
+/* caller must free the return */
+CALLER_OWN char *owl_cmddict_execute_argv(const owl_cmddict *cd, const owl_context *ctx, const char *const *argv, int argc)
+{
+  char *buff;
+  char *retval = NULL;
 
-  /* We weren't given a command line, so fabricate a valid one. */
-  for(i = 0; i < argc; i++) {
-    if (i != 0)
-      g_string_append_c(buf, ' ');
-    owl_string_append_quoted_arg(buf, argv[i]);
-  }
+  buff = g_strjoinv(" ", (char**)argv);
+  retval = _owl_cmddict_execute(cd, ctx, argv, argc, buff);
+  g_free(buff);
 
-  retval = _owl_cmddict_execute(cd, ctx, argv, argc, buf->str);
-
-  g_string_free(buf, true);
   return retval;
 }
 
@@ -142,21 +124,20 @@ int owl_cmd_create_from_template(owl_cmd *cmd, const owl_cmd *templ) {
   return(0);
 }
 
-int owl_cmd_create_alias(owl_cmd *cmd, const char *name, const char *aliased_to) {
+void owl_cmd_create_alias(owl_cmd *cmd, const char *name, const char *aliased_to) {
   memset(cmd, 0, sizeof(owl_cmd));
   cmd->name = g_strdup(name);
   cmd->cmd_aliased_to = g_strdup(aliased_to);
   cmd->summary = g_strdup_printf("%s%s", OWL_CMD_ALIAS_SUMMARY_PREFIX, aliased_to);
-  return(0);
 }
 
 void owl_cmd_cleanup(owl_cmd *cmd)
 {
-  if (cmd->name) g_free(cmd->name);
-  if (cmd->summary) g_free(cmd->summary);
-  if (cmd->usage) g_free(cmd->usage);
-  if (cmd->description) g_free(cmd->description);
-  if (cmd->cmd_aliased_to) g_free(cmd->cmd_aliased_to);
+  g_free(cmd->name);
+  g_free(cmd->summary);
+  g_free(cmd->usage);
+  g_free(cmd->description);
+  g_free(cmd->cmd_aliased_to);
   if (cmd->cmd_perl) owl_perlconfig_cmd_cleanup(cmd);
 }
 
@@ -171,7 +152,9 @@ int owl_cmd_is_context_valid(const owl_cmd *cmd, const owl_context *ctx) {
   else return 0;
 }
 
-char *owl_cmd_execute(const owl_cmd *cmd, const owl_cmddict *cd, const owl_context *ctx, int argc, const char *const *argv, const char *cmdbuff) {
+/* caller must free the result */
+CALLER_OWN char *owl_cmd_execute(const owl_cmd *cmd, const owl_cmddict *cd, const owl_context *ctx, int argc, const char *const *argv, const char *cmdbuff)
+{
   static int alias_recurse_depth = 0;
   int ival=0;
   const char *cmdbuffargs;
@@ -244,7 +227,8 @@ const char *owl_cmd_get_summary(const owl_cmd *cmd) {
 }
 
 /* returns a summary line describing this keymap.  the caller must free. */
-char *owl_cmd_describe(const owl_cmd *cmd) {
+CALLER_OWN char *owl_cmd_describe(const owl_cmd *cmd)
+{
   if (!cmd || !cmd->name || !cmd->summary) return NULL;
   return g_strdup_printf("%-25s - %s", cmd->name, cmd->summary);
 }

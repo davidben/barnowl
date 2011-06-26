@@ -6,7 +6,7 @@
 
 /* Returns a copy of 'in' with each line indented 'n'
  * characters. Result must be freed with g_free. */
-char *owl_text_indent(const char *in, int n)
+CALLER_OWN char *owl_text_indent(const char *in, int n)
 {
   const char *ptr1, *ptr2, *last;
   GString *out = g_string_new("");
@@ -47,7 +47,7 @@ int owl_text_num_lines(const char *in)
 
 
 /* caller must free the return */
-char *owl_text_htmlstrip(const char *in)
+CALLER_OWN char *owl_text_htmlstrip(const char *in)
 {
   const char *ptr1, *end, *ptr2, *ptr3;
   char *out, *out2;
@@ -128,7 +128,7 @@ char *owl_text_htmlstrip(const char *in)
 }
 
 /* Caller must free return */
-char *owl_text_expand_tabs(const char *in)
+CALLER_OWN char *owl_text_expand_tabs(const char *in)
 {
   int len = 0;
   const char *p = in;
@@ -187,7 +187,7 @@ char *owl_text_expand_tabs(const char *in)
 }
 
 /* caller must free the return */
-char *owl_text_wordwrap(const char *in, int col)
+CALLER_OWN char *owl_text_wordwrap(const char *in, int col)
 {
   char *out;
   int cur, lastspace, len, lastnewline;
@@ -266,50 +266,14 @@ int only_whitespace(const char *s)
 }
 
 /* Return a string with any occurances of 'from' replaced with 'to'.
- * Does not currently handle backslash quoting, but may in the future.
  * Caller must free returned string.
  */
-char *owl_text_substitute(const char *in, const char *from, const char *to)
+CALLER_OWN char *owl_text_substitute(const char *in, const char *from, const char *to)
 {
-  
-  char *out;
-  int   outlen, tolen, fromlen, inpos=0, outpos=0;
-
-  if (!*from) return g_strdup(in);
-
-  outlen = strlen(in)+1;
-  tolen  = strlen(to);
-  fromlen  = strlen(from);
-  out = g_new(char, outlen);
-
-  while (in[inpos]) {
-    if (!strncmp(in+inpos, from, fromlen)) {
-      outlen += tolen;
-      out = g_renew(char, out, outlen);
-      strcpy(out+outpos, to);
-      inpos += fromlen;
-      outpos += tolen;
-    } else {
-      out[outpos] = in[inpos];
-      inpos++; outpos++;
-    }
-  }
-  out[outpos] = '\0';
-  return(out);
-}
-
-/* replace all instances of character a in buff with the character
- * b.  buff must be null terminated.
- */
-void owl_text_tr(char *buff, char a, char b)
-{
-  int i;
-
-  owl_function_debugmsg("In: %s", buff);
-  for (i=0; buff[i]!='\0'; i++) {
-    if (buff[i]==a) buff[i]=b;
-  }
-  owl_function_debugmsg("Out: %s", buff);
+  char **split = g_strsplit(in, from, 0), *out;
+  out = g_strjoinv(to, split);
+  g_strfreev(split);
+  return out;
 }
 
 /* Return a string which is like 'in' except that every instance of
@@ -319,7 +283,7 @@ void owl_text_tr(char *buff, char a, char b)
  * permissable for a character in 'quotestr' to be in 'toquote'.
  * On success returns the string, on error returns NULL.
  */
-char *owl_text_quote(const char *in, const char *toquote, const char *quotestr)
+CALLER_OWN char *owl_text_quote(const char *in, const char *toquote, const char *quotestr)
 {
   int i, x, r, place, escape;
   int in_len, toquote_len, quotestr_len;

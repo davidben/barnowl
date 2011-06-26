@@ -10,7 +10,6 @@
 
 #include <unistd.h>
 #include <sys/types.h>
-#include <zephyr/zephyr.h>
 #include <glib.h>
 #include <string.h>
 #include <stdlib.h>
@@ -26,6 +25,10 @@
 #endif
 
 #include "filterproc.h"
+
+/* Annotate functions in which the caller owns the return value and is
+ * responsible for ensuring it is freed. */
+#define CALLER_OWN G_GNUC_WARN_UNUSED_RESULT
 
 #define MAX_KEY      128
 #define MAX_LINE     128
@@ -53,10 +56,10 @@ typedef struct
   char *message;
 } ZWRITEOPTIONS;
 
-char *GetZephyrVarKeyFile(const char *whoami, const char *class, const char *instance);
+CALLER_OWN char *GetZephyrVarKeyFile(const char *whoami, const char *class, const char *instance);
 int ParseCryptSpec(const char *spec, const char **keyfile);
-char *BuildArgString(char **argv, int start, int end);
-char *read_keystring(const char *keyfile);
+CALLER_OWN char *BuildArgString(char **argv, int start, int end);
+CALLER_OWN char *read_keystring(const char *keyfile);
 
 int do_encrypt(int zephyr, const char *class, const char *instance,
                ZWRITEOPTIONS *zoptions, const char* keyfile, int cipher);
@@ -364,7 +367,7 @@ int ParseCryptSpec(const char *spec, const char **keyfile) {
 
 /* Build a space-separated string from argv from elements between start  *
  * and end - 1.  malloc()'s the returned string. */
-char *BuildArgString(char **argv, int start, int end)
+CALLER_OWN char *BuildArgString(char **argv, int start, int end)
 {
   int len = 1;
   int i;
@@ -401,7 +404,7 @@ char *BuildArgString(char **argv, int start, int end)
 #define MAX_BUFF 258
 #define MAX_SEARCH 3
 /* Find the class/instance in the .crypt-table */
-char *GetZephyrVarKeyFile(const char *whoami, const char *class, const char *instance)
+CALLER_OWN char *GetZephyrVarKeyFile(const char *whoami, const char *class, const char *instance)
 {
   char *keyfile = NULL;
   char *varname[MAX_SEARCH];
@@ -475,14 +478,10 @@ char *GetZephyrVarKeyFile(const char *whoami, const char *class, const char *ins
     fprintf(stderr, "Could not open key table file: %s\n", filename);
 
   for(i = 0; i < MAX_SEARCH; i++) {
-    if(varname[i] != NULL) {
-      g_free(varname[i]);
-    }
+    g_free(varname[i]);
   }
 
-  if(filename != NULL) {
-    g_free(filename);
-  }
+  g_free(filename);
 
   return keyfile;
 }
@@ -583,7 +582,7 @@ void block_to_ascii(unsigned char *output, FILE *outfile)
   }
 }
 
-char *slurp_stdin(int ignoredot, int *length) {
+CALLER_OWN char *slurp_stdin(int ignoredot, int *length) {
   char *buf;
   char *inptr;
 
@@ -615,7 +614,7 @@ char *slurp_stdin(int ignoredot, int *length) {
   return buf;
 }
 
-char *GetInputBuffer(ZWRITEOPTIONS *zoptions, int *length) {
+CALLER_OWN char *GetInputBuffer(ZWRITEOPTIONS *zoptions, int *length) {
   char *buf;
 
   if (zoptions->flags & ZCRYPT_OPT_MESSAGE)
@@ -641,7 +640,7 @@ char *GetInputBuffer(ZWRITEOPTIONS *zoptions, int *length) {
   return buf;
 }
 
-char *read_keystring(const char *keyfile) {
+CALLER_OWN char *read_keystring(const char *keyfile) {
   char *keystring;
   FILE *fkey = fopen(keyfile, "r");
   if(!fkey) {
@@ -772,7 +771,7 @@ int do_encrypt_aes(const char *keyfile, const char *in, int length, FILE *outfil
   };
   err = call_filter("gpg", argv, in, &out, &status);
   if(err || status) {
-    if(out) g_free(out);
+    g_free(out);
     return FALSE;
   }
   fwrite(out, strlen(out), 1, outfile);
@@ -855,7 +854,7 @@ int do_decrypt_aes(const char *keyfile) {
 
   err = call_filter("gpg", argv, in, &out, &status);
   if(err || status) {
-    if(out) g_free(out);
+    g_free(out);
     return FALSE;
   }
   fwrite(out, strlen(out), 1, stdout);

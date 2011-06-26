@@ -317,7 +317,7 @@ char *owl_message_get_shorttimestr(owl_message *m)
   tmstruct=localtime(&time);
   out=g_strdup_printf("%2.2i:%2.2i", tmstruct->tm_hour, tmstruct->tm_min);
   if (out) return(out);
-  return("??:??");
+  return g_strdup("??:??");
 }
 
 void owl_message_set_type_admin(owl_message *m)
@@ -504,7 +504,7 @@ int owl_message_is_mail(const owl_message *m)
 }
 
 /* caller must free return value. */
-char *owl_message_get_cc(const owl_message *m)
+CALLER_OWN char *owl_message_get_cc(const owl_message *m)
 {
   const char *cur;
   char *out, *end;
@@ -521,7 +521,7 @@ char *owl_message_get_cc(const owl_message *m)
 }
 
 /* caller must free return value */
-GList *owl_message_get_cc_without_recipient(const owl_message *m)
+CALLER_OWN GList *owl_message_get_cc_without_recipient(const owl_message *m)
 {
   char *cc, *shortuser, *recip;
   const char *user;
@@ -687,7 +687,7 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
 #else /* !ZNOTICE_SOCKADDR */
   struct hostent *hent;
 #endif /* ZNOTICE_SOCKADDR */
-  char *ptr, *tmp, *tmp2;
+  char *tmp, *tmp2;
   int i,j,len;
 
   owl_message_init(m);
@@ -709,11 +709,7 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
   }
   owl_message_set_zsig(m, owl_zephyr_get_zsig(n, &len));
 
-  if ((ptr=strchr(n->z_recipient, '@'))!=NULL) {
-    owl_message_set_realm(m, ptr+1);
-  } else {
-    owl_message_set_realm(m, owl_zephyr_get_realm());
-  }
+  owl_message_set_realm(m, zuser_realm(n->z_recipient));
 
   /* Set the "isloginout" attribute if it's a login message */
   if (!strcasecmp(n->z_class, "login") || !strcasecmp(n->z_class, OWL_WEBZEPHYR_CLASS)) {
@@ -779,9 +775,9 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
   av_zfields = newAV();
   j=owl_zephyr_get_num_fields(n);
   for (i=0; i<j; i++) {
-    ptr=owl_zephyr_get_field_as_utf8(n, i+1);
-    av_push(av_zfields, owl_new_sv(ptr));
-    g_free(ptr);
+    tmp=owl_zephyr_get_field_as_utf8(n, i+1);
+    av_push(av_zfields, owl_new_sv(tmp));
+    g_free(tmp);
   }
   (void)hv_store((HV*)SvRV(m), "fields", strlen("fields"), newRV_noinc((SV*)av_zfields), 0);
 
@@ -832,17 +828,17 @@ int owl_message_get_num_fields(const owl_message *m)
   return av_len(fields) + 1;
 }
 
-char *owl_message_get_field(const owl_message *m, int n)
+CALLER_OWN char *owl_message_get_field(const owl_message *m, int n)
 {
   n--;
   SV * ref_fields;
   AV * fields;
   SV ** f;
   ref_fields = owl_message_get_attribute_internal(m, "fields");
-  if(!ref_fields || !SvROK(ref_fields)) return "";
+  if(!ref_fields || !SvROK(ref_fields)) return g_strdup("");
   fields = (AV*)SvRV(ref_fields);
   f = av_fetch(fields, n, 0);
-  if(!f) return "";
+  if(!f) return g_strdup("");
   return g_strdup(SvPV_nolen(*f));
 }
 #else
@@ -855,7 +851,6 @@ void owl_message_create_from_znotice(owl_message *m, const void *n)
 void owl_message_create_pseudo_zlogin(owl_message *m, int direction, const char *user, const char *host, const char *time, const char *tty)
 {
   char *longuser;
-  const char *ptr;
 
   longuser=long_zuser(user);
   
@@ -880,11 +875,7 @@ void owl_message_create_pseudo_zlogin(owl_message *m, int direction, const char 
     owl_message_set_islogout(m);
   }
 
-  if ((ptr=strchr(longuser, '@'))!=NULL) {
-    owl_message_set_realm(m, ptr+1);
-  } else {
-    owl_message_set_realm(m, owl_zephyr_get_realm());
-  }
+  owl_message_set_realm(m, zuser_realm(longuser));
 
   owl_message_set_body(m, "<uninitialized>");
 
@@ -896,10 +887,8 @@ void owl_message_create_pseudo_zlogin(owl_message *m, int direction, const char 
   owl_message_lock(m);
 }
 
-void owl_message_create_from_zwrite(owl_message *m, const owl_zwrite *z, const char *body)
+void owl_message_create_from_zwrite(owl_message *m, const owl_zwrite *z, const char *body, int recip_index)
 {
-  int ret;
-  char hostbuff[5000];
   char *replyline;
   
   owl_message_init(m);
@@ -910,18 +899,25 @@ void owl_message_create_from_zwrite(owl_message *m, const owl_zwrite *z, const c
   owl_message_set_sender(m, owl_zephyr_get_sender());
   owl_message_set_class(m, owl_zwrite_get_class(z));
   owl_message_set_instance(m, owl_zwrite_get_instance(z));
-  if (owl_zwrite_get_numrecips(z)>0) {
-    char *longzuser = long_zuser(owl_zwrite_get_recip_n(z, 0));
-    owl_message_set_recipient(m,
-			      longzuser); /* only gets the first user, must fix */
+  if (recip_index < owl_zwrite_get_numrecips(z)) {
+    char *zuser = owl_zwrite_get_recip_n_with_realm(z, recip_index);
+    char *longzuser = long_zuser(zuser);
+    owl_message_set_recipient(m, longzuser);
+    owl_message_set_realm(m, zuser_realm(longzuser));
     g_free(longzuser);
+    g_free(zuser);
+  } else {
+    /* TODO: We should maybe munge this into the case above, as that comparison
+     * is a little overly clever. It's also not clear this codepath ever runs
+     * anyway. */
+    const char *realm = owl_zwrite_get_realm(z);
+    owl_message_set_realm(m, realm[0] ? realm : owl_zephyr_get_realm());
   }
   owl_message_set_opcode(m, owl_zwrite_get_opcode(z));
-  owl_message_set_realm(m, owl_zwrite_get_realm(z)); /* also a hack, but not here */
 
   /* Although not strictly the zwriteline, anyone using the unsantized version
    * of it probably has a bug. */
-  replyline = owl_zwrite_get_replyline(z);
+  replyline = owl_zwrite_get_replyline(z, recip_index);
   owl_message_set_zwriteline(m, replyline);
   g_free(replyline);
 
@@ -929,13 +925,7 @@ void owl_message_create_from_zwrite(owl_message *m, const owl_zwrite *z, const c
   owl_message_set_zsig(m, owl_zwrite_get_zsig(z));
   
   /* save the hostname */
-  ret=gethostname(hostbuff, MAXHOSTNAMELEN);
-  hostbuff[MAXHOSTNAMELEN]='\0';
-  if (ret) {
-    owl_message_set_hostname(m, "localhost");
-  } else {
-    owl_message_set_hostname(m, hostbuff);
-  }
+  owl_message_set_hostname(m, g_get_host_name());
 
   /* set the "isprivate" attribute if it's a private zephyr. */
   if (owl_zwrite_is_personal(z)) {
@@ -1058,10 +1048,8 @@ void owl_message_curs_waddstr(owl_message *m, WINDOW *win, int aline, int bline,
   
   owl_fmtext_truncate_lines(fm, aline, bline-aline, &a);
   owl_fmtext_truncate_cols(&a, acol, bcol, &b);
-  owl_fmtext_colorize(&b, fgcolor);
-  owl_fmtext_colorizebg(&b, bgcolor);
 
-  owl_fmtext_curs_waddstr(&b, win);
+  owl_fmtext_curs_waddstr(&b, win, OWL_FMTEXT_ATTR_NONE, fgcolor, bgcolor);
 
   owl_fmtext_cleanup(&a);
   owl_fmtext_cleanup(&b);

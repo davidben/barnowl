@@ -7,6 +7,7 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADER([config.h])
 
 AC_PROG_CC
+AC_PROG_CC_C99
 
 AC_ARG_WITH([stack-protector],
   [AS_HELP_STRING([--with-stack-protector],
@@ -15,7 +16,7 @@ AC_ARG_WITH([stack-protector],
   [with_stack_protector=check])
 
 AS_IF([test "x$with_stack_protector" != xno],
-  [AX_C_CHECK_FLAG([-fstack-protector],[],[],
+  [AX_CHECK_COMPILE_FLAG([-fstack-protector],
     [AM_CFLAGS="$AM_CFLAGS -fstack-protector"],
     [if test "x$with_stack_protector" != xcheck; then
        AC_MSG_FAILURE([--with-stack-protector selected, but gcc does support it.])
@@ -79,8 +80,7 @@ AC_CHECK_FUNCS([des_key_sched DES_key_sched], [HAVE_DES_KEY_SCHED=1])
 dnl Checks for header files.
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
-AC_HEADER_STDBOOL
-AC_CHECK_HEADERS(strings.h sys/ioctl.h sys/filio.h unistd.h)
+AC_CHECK_HEADERS(stdbool.h strings.h sys/ioctl.h sys/filio.h unistd.h)
 
 dnl Add CFLAGS for embeded perl
 PERL_CFLAGS=`perl -MExtUtils::Embed -e ccopts`
@@ -114,7 +114,7 @@ AX_PROG_PERL_MODULES([PAR],,
                      [AC_MSG_WARN([PAR.pm not found. Loadable modules will be disabled.])])
 
 dnl Add CFLAGS and LIBS for glib-2.0
-PKG_CHECK_MODULES(GLIB,[glib-2.0 gobject-2.0])
+PKG_CHECK_MODULES(GLIB,[glib-2.0 >= 2.16 gobject-2.0 gthread-2.0])
 
 AC_MSG_NOTICE([Adding glib-2.0 CFLAGS ${GLIB_CFLAGS}])
 AM_CFLAGS="${GLIB_CFLAGS} ${AM_CFLAGS}"
@@ -128,17 +128,19 @@ fi
 dnl Checks for typedefs, structures, and compiler characteristics.
 
 AX_CFLAGS_WARN_ALL([AM_CFLAGS])
-AX_C_CHECK_FLAG([-Wstrict-prototypes],[],[],[AM_CFLAGS="$AM_CFLAGS -Wstrict-prototypes"])
+AX_APPEND_COMPILE_FLAGS([-Wstrict-prototypes -Wwrite-strings],[AM_CFLAGS])
 
-m4_foreach([myflag],
-  [[-Wno-pointer-sign],[-Wno-empty-body],[-Wno-unused-value]],
-  [AX_C_CHECK_FLAG([myflag],[],[],[LIBFAIM_CFLAGS="$LIBFAIM_CFLAGS myflag"])])
+dnl Shut gcc up about zero-length format strings; the warning's apparently for
+dnl efficiency reasons, which is bogus for custom functions.
+AX_APPEND_COMPILE_FLAGS([-Wno-format-zero-length],[AM_CFLAGS])
+
+AX_APPEND_COMPILE_FLAGS([-Wno-pointer-sign -Wno-empty-body -Wno-unused-value],[LIBFAIM_CFLAGS])
 
 AM_CONDITIONAL([ENABLE_ZCRYPT], [test "$HAVE_DES_STRING_TO_KEY" && dnl
                                  test "$HAVE_DES_KEY_SCHED" && dnl
                                  test "$HAVE_DES_ECB_ENCRYPT"])
 
-AM_CFLAGS="$AM_CFLAGS -D_XOPEN_SOURCE=500"
+AM_CFLAGS="$AM_CFLAGS -D_XOPEN_SOURCE=600"
 dnl Define _BSD_SOURCE because zephyr needs caddr_t.
 AM_CFLAGS="$AM_CFLAGS -D_BSD_SOURCE"
 dnl Define __EXTENSIONS__ for strcasecmp on Solaris.
@@ -158,6 +160,7 @@ if test "x${HAVE_ZIP}" = "xno"; then
 fi
 
 AC_CONFIG_LIBOBJ_DIR([compat])
+AC_CHECK_DECLS([memrchr])
 AC_REPLACE_FUNCS([memrchr])
 
 AC_CONFIG_FILES([Makefile compat/Makefile libfaim/Makefile perl/Makefile perl/modules/Makefile])
