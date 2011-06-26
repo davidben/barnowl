@@ -83,18 +83,15 @@ static void sepbar_redraw(owl_window *w, WINDOW *sepwin, void *user_data)
     wattroff(sepwin, A_BOLD);
   }
 
-/*
-FIXME!!!
   if (owl_mainwin_is_curmsg_truncated(owl_global_get_mainwin(&g))) {
     getyx(sepwin, y, x);
     wmove(sepwin, y, x+2);
     wattron(sepwin, A_BOLD);
     cur_numlines = owl_global_get_curmsg_vert_offset(&g) + 1;
-    cur_totallines = owl_message_get_numlines(owl_view_get_element(v, owl_global_get_curmsg(&g)));
+    cur_totallines = owl_message_get_numlines(owl_global_get_current_message(&g));
     wprintw(sepwin, " <truncated: %d/%d> ", cur_numlines, cur_totallines);
     wattroff(sepwin, A_BOLD);
   }
-*/
 
   if (owl_global_get_curmsg_vert_offset(&g)) {
     getyx(sepwin, y, x);
