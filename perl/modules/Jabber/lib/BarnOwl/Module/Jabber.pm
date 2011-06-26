@@ -19,9 +19,6 @@ use BarnOwl::Message::Jabber;
 use BarnOwl::Module::Jabber::AccountManager;
 use BarnOwl::Completion::Util qw(complete_flags);
 
-use Getopt::Long;
-Getopt::Long::Configure(qw(no_getopt_compat prefix_pattern=-|--));
-
 use AnyEvent;
 use AnyEvent::XMPP::IM::Message;
 use AnyEvent::XMPP::IM::Presence;
@@ -29,6 +26,9 @@ use AnyEvent::XMPP::Namespaces qw(xmpp_ns);
 use AnyEvent::XMPP::Util qw(split_jid join_jid res_jid node_jid
                             bare_jid cmp_bare_jid is_bare_jid
                             dump_twig_xml xmpp_datetime_as_timestamp);
+
+use Getopt::Long;
+Getopt::Long::Configure(qw(no_getopt_compat prefix_pattern=-|--));
 
 use POSIX qw(strftime);
 
