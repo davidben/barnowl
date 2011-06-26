@@ -141,6 +141,11 @@ But that practice has been discouraged in XMPP, and a TLS handshake is done
 after the XML stream has been established. Only use this option if you know
 what you are doing.
 
+=item verify_cert => $bool
+
+If C<$bool> is true the server's certificate will be verified during
+the TLS handshake.
+
 =item disable_sasl => $bool
 
 If C<$bool> is true SASL will NOT be used to authenticate with the server, even
@@ -365,7 +370,8 @@ was successfully connected.
 
 sub connect {
    my ($self) = @_;
-   $self->SUPER::connect ($self->{host}, $self->{port}, $self->{connect_timeout});
+   $self->SUPER::connect ($self->{host}, $self->{port}, $self->{connect_timeout},
+                          verify_cert => $self->{verify_cert});
 }
 
 sub connected {

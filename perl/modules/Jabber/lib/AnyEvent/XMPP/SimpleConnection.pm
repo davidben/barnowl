@@ -40,7 +40,7 @@ sub new {
 }
 
 sub connect {
-   my ($self, $host, $service, $timeout) = @_;
+   my ($self, $host, $service, $timeout, %args) = @_;
 
    $self->{handle}
       and return 1;
@@ -61,6 +61,9 @@ sub connect {
       $self->{handle} =
          AnyEvent::Handle->new (
             fh => $fh,
+            peername => $host,
+            ($args{verify_cert} ?
+             (tls_ctx => { verify => 1, verify_peername => 'xmpp' }) : ()),
             on_eof => sub {
                $self->disconnect ("EOF on connection to $self->{peer_host}:$self->{peer_port}: $!");
             },
