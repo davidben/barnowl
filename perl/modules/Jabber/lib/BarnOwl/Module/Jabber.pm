@@ -1093,8 +1093,8 @@ sub on_presence_xml {
 sub on_presence_error {
     my ($acc, $err) = @_;
 
-    my $code = $err->code;
-    my $error = $err->text;
+    my $code = $err->code // '';
+    my $error = $err->text // '';
     # TODO: may as well pull out all the other fields.
     BarnOwl::error("Jabber: $code $error");
 }
@@ -1394,17 +1394,17 @@ sub message_error_to_obj {
 
     if (defined($props{from})) {
         $props{body}     = sprintf("Error sending to %s: %s/%s (type %s)\n%s",
-                                   $props{from},
-                                   $props{error_code},
-                                   $props{error_condition},
-                                   $props{error_type},
-                                   $props{error});
+                                   $props{from} // '',
+                                   $props{error_code} // '',
+                                   $props{error_condition} // '',
+                                   $props{error_type} // '',
+                                   $props{error} // '');
     } else {
         $props{body}     = sprintf("Error: %s/%s (type %s)\n%s",
-                                   $props{error_code},
-                                   $props{error_condition},
-                                   $props{error_type},
-                                   $props{error});
+                                   $props{error_code} // '',
+                                   $props{error_condition} // '',
+                                   $props{error_type} // '',
+                                   $props{error} // '');
     }
     return BarnOwl::Message->new(%props);
 }
