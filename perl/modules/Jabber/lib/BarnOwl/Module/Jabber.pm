@@ -85,6 +85,9 @@ sub onStart {
 				  { default => 1,
 				    summary => 'Auto-reconnect when disconnected from servers.'
 				});
+	BarnOwl::new_variable_bool("jabber:verify_certificate",
+				   { default => 1,
+				     summary => 'Verify the server\'s certificate.'});
     } else {
         # Our owl doesn't support queue_message. Unfortunately, this
         # means it probably *also* doesn't support BarnOwl::error. So just
@@ -391,8 +394,10 @@ sub do_login {
 
     # Timeout borrowed from Net::Jabber-based implementation.
     # TODO: Make connect_timeout a variable.
+    my $verify_cert = BarnOwl::getvar('jabber:verify_certificate') eq 'on';
     my $acc = $accounts->add_account($jid, $password,
                                      { connect_timeout => 10,
+				       verify_cert => $verify_cert,
 				       (defined $host ? (host => $host) : ()),
 				       (defined $port ? (port => $port) : ()),
 				     });
