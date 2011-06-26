@@ -152,10 +152,9 @@ sub do_auto_away {
 #         }
 #     }
 
-our $showOffline = 0;
-
 sub blist_listBuddy {
     my $buddy  = shift;
+    my $showOffline = shift;
     my $blistStr .= "    ";
 
     my $name = $buddy->name // node_jid($buddy->jid);
@@ -190,6 +189,7 @@ sub blistSort {
 
 sub getSingleBuddyList {
     my $acc = shift;
+    my $showOffline = shift;
     my $blist = "";
     my $roster = $acc->get_roster();
     if ($roster) {
@@ -214,7 +214,7 @@ sub getSingleBuddyList {
         foreach my $group (sort blistSort (keys %groups)) {
             my @bTexts = ();
             foreach my $buddy ( @{$groups{$group}} ) {
-                push(@bTexts, blist_listBuddy($buddy));
+                push(@bTexts, blist_listBuddy($buddy, $showOffline));
             }
             push(@gTexts, "  Group: $group\n".join('',sort blistSort @bTexts));
         }
@@ -222,7 +222,7 @@ sub getSingleBuddyList {
         if (@ungrouped) {
             my @bTexts = ();
             foreach my $buddy (@ungrouped) {
-                push(@bTexts, blist_listBuddy($buddy));
+                push(@bTexts, blist_listBuddy($buddy, $showOffline));
             }
             push(@gTexts, "  [unsorted]\n".join('',sort blistSort @bTexts));
         }
@@ -232,10 +232,10 @@ sub getSingleBuddyList {
 }
 
 sub onGetBuddyList {
-    $showOffline = BarnOwl::getvar('jabber:show_offline_buddies') eq 'on';
+    my $showOffline = BarnOwl::getvar('jabber:show_offline_buddies') eq 'on';
     my $blist = "";
     foreach my $acc ($accounts->accounts()) {
-        $blist .= getSingleBuddyList($acc);
+        $blist .= getSingleBuddyList($acc, $showOffline);
     }
     return $blist;
 }
