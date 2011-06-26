@@ -1,6 +1,6 @@
 #include "owl.h"
 
-static GMainLoop *loop = NULL;
+static bool loop_active;
 
 void owl_select_init(void)
 {
@@ -8,22 +8,24 @@ void owl_select_init(void)
 
 void owl_select_run_loop(void)
 {
-  loop = g_main_loop_new(NULL, FALSE);
-  g_main_loop_run(loop);
-  /* FIXME!!! */
-#if 0
-  owl_perl_savetmps();
-  owl_perl_freetmps();
-#endif
+  GMainContext *context = g_main_context_default();
+  if (loop_active) {
+    owl_function_error("owl_select_run_loop called recursively!");
+    return;
+  }
+  /* Drive the loop ourselves so that we can properly savetmps/freetmps around
+   * each iteration. */
+  loop_active = true;
+  while (loop_active) {
+    owl_perl_savetmps();
+    g_main_context_iteration(context, TRUE);
+    owl_perl_freetmps();
+  }
 }
 
 void owl_select_quit_loop(void)
 {
-  if (loop) {
-    g_main_loop_quit(loop);
-    g_main_loop_unref(loop);
-    loop = NULL;
-  }
+  loop_active = false;
 }
 
 typedef struct _owl_task { /*noproto*/
