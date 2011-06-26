@@ -1214,6 +1214,18 @@ sub on_muc_locked {
 
 sub on_muc_error {
     my ($acc, $room, $error) = @_;
+
+    # Work around a quirk of conference.jabber.org. When creating a
+    # new room, we receive both presence with 201 status code AND an
+    # item-not-found error. Suppress the latter.
+    if ($error->type eq 'room_locked' &&
+        defined($room->get_me) &&
+        $room->get_me->did_create_room &&
+        BarnOwl::getvar('jabber::spew') ne 'on') {
+        BarnOwl::debug("Suppressing room_locked error on a room we created.");
+        return;
+    }
+
     my $msg_error = $error->message_error();
     if (defined($msg_error)) {
         BarnOwl::queue_message(message_error_to_obj($msg_error, { direction => 'in' }));
