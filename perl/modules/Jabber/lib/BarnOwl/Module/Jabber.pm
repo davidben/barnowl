@@ -28,7 +28,9 @@ use AnyEvent::XMPP::IM::Presence;
 use AnyEvent::XMPP::Namespaces qw(xmpp_ns);
 use AnyEvent::XMPP::Util qw(split_jid join_jid res_jid node_jid
                             bare_jid cmp_bare_jid is_bare_jid
-                            dump_twig_xml);
+                            dump_twig_xml xmpp_datetime_as_timestamp);
+
+use POSIX qw(strftime);
 
 use utf8;
 
@@ -1307,7 +1309,12 @@ sub message_to_obj {
 	$props{xml}        = $j->xml_node()->as_string();
     }
 
-    # TODO: do something about delayed messages
+    if ($j->is_delayed()) {
+	$props{delayed} = 1;
+	$props{delay_reason} = $j->delay_reason();
+	my $time = xmpp_datetime_as_timestamp($j->delay_stamp());
+	$props{time} = strftime("%a %b %d %T %Y", localtime($time));
+    }
 
     # TODO: See about using the various convenience methods
     # AnyEvent::XMPP::Ext::MUC::Message provides.
