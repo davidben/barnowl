@@ -1368,6 +1368,11 @@ sub message_to_obj {
         }
     }
 
+    # Save the name of the contact that sent the message.
+    my $roster = $acc->get_roster();
+    my $from_contact = $roster->get_contact($props{from}) if defined $roster;
+    $props{from_name} = $from_contact->name if defined $from_contact;
+
     return BarnOwl::Message->new(%props);
 }
 

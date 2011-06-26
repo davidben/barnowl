@@ -19,6 +19,7 @@ use base qw( BarnOwl::Message );
 
 sub jtype { shift->{jtype} };
 sub from { shift->{from} };
+sub from_name { shift->{from_name} };
 sub to { shift->{to} };
 sub room { shift->{room} };
 sub nick { shift->{nick} };
@@ -49,7 +50,7 @@ sub long_sender {
             return $self->nick;
         }
     }
-    return $self->from;
+    return $self->from_name || $self->from;
 }
 
 sub context {
