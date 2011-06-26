@@ -88,6 +88,10 @@ sub onStart {
 	BarnOwl::new_variable_bool("jabber:verify_certificate",
 				   { default => 1,
 				     summary => 'Verify the server\'s certificate.'});
+	# Default borrowed from Net::Jabber-based implementation.
+	BarnOwl::new_variable_int("jabber:connect_timeout",
+				   { default => 10,
+				     summary => 'Seconds to wait before timing out of a connect.'});
     } else {
         # Our owl doesn't support queue_message. Unfortunately, this
         # means it probably *also* doesn't support BarnOwl::error. So just
@@ -392,11 +396,10 @@ sub cmd_login {
 sub do_login {
     my ($jid, $password, $host, $port) = @_;
 
-    # Timeout borrowed from Net::Jabber-based implementation.
-    # TODO: Make connect_timeout a variable.
+    my $connect_timeout = BarnOwl::getvar('jabber:connect_timeout');
     my $verify_cert = BarnOwl::getvar('jabber:verify_certificate') eq 'on';
     my $acc = $accounts->add_account($jid, $password,
-                                     { connect_timeout => 10,
+                                     { connect_timeout => $connect_timeout,
 				       verify_cert => $verify_cert,
 				       (defined $host ? (host => $host) : ()),
 				       (defined $port ? (port => $port) : ()),
