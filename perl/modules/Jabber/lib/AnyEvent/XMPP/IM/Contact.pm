@@ -88,6 +88,9 @@ of the groups.
 sub send_update {
    my ($self, $cb, %upd) = @_;
 
+   my @oldgroups = @{$self->{groups}} if defined($self->{groups});
+   my $oldname = $self->{name};
+
    if ($upd{groups}) {
       $self->{groups} = $upd{groups};
    }
@@ -119,7 +122,14 @@ sub send_update {
       sub {
          my ($node, $error) = @_;
          my $con = undef;
-         unless ($error) { $con = $self }
+         if (defined $error) {
+            # We're not going to get a roster push, so revert our
+            # changes locally.
+            $self->{groups} = \@oldgroups;
+            $self->{name} = $oldname;
+         } else {
+            $con = $self;
+         }
          $cb->($con, $error) if $cb
       }
    );
