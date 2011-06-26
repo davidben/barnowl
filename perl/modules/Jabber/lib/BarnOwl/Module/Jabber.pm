@@ -630,6 +630,7 @@ sub jmuc_join {
     my $room = bare_jid($muc);
     my $nick = res_jid($muc) // bare_jid($acc->jid);
 
+    # FIXME: This probably doesn't work if we want to change nicks.
     $acc->muc->join_room($acc->connection, $room, $nick,
                          history => { chars => 0 },
                          create_instant => 0,
