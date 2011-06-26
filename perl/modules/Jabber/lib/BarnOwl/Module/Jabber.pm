@@ -784,8 +784,6 @@ sub cmd_jroster {
         );
         my $acc = resolveConnectedJID($jid);
         die $acc->jid . " is not connected" unless $acc->is_session_ready;
-	# TODO: deduplicate groups? RFC suggests to compare as in
-	# resources. Alternatively, at least report the error.
         return $func->( $acc, $name, \@groups, $purgeGroups,  @ARGV );
     }
 }
@@ -868,20 +866,7 @@ sub jroster_add {
     undef $name unless (1 == scalar(@ARGV));
 
     foreach my $to (@ARGV) {
-        my %allGroups;
-        @allGroups{@groups} = 1;
-        unless ($purgeGroups) {
-            # Pull in existing groups.
-            #
-            # FIXME: Adding groups is asynchronous. Should take
-            # pending requests into account here.
-            my $contact = $roster->get_contact($to);
-            if (defined($contact)) {
-                @allGroups{$contact->groups} = 1;
-            }
-        }
-        @groups = keys %allGroups;
-        $roster->new_contact($to, $name, \@groups, sub {
+        my $update_cb = sub {
             my ($contact, $err) = @_;
             if (defined($err)) {
                 my $msg = "$baseJID: error adding $to to roster: " . $err->string;
@@ -895,7 +880,20 @@ sub jroster_add {
                     . " }";
                 queue_admin_msg($msg);
             }
-        });
+        };
+
+        my $contact = $roster->get_contact($to);
+        if (defined($contact)) {
+            # Go through AnyEvent::XMPP because updating groups is
+            # async and we want queries to take this into account
+            # if, e.g., calling jroster add twice in a row.
+            $contact->send_update($update_cb,
+				  (defined($name) ? (name => $name) : ()),
+                                  ($purgeGroups ? 'groups' : 'add_group')
+                                  => \@groups);
+        } else {
+            $roster->new_contact($to, $name, \@groups, $update_cb);
+        }
     }
 }
 
