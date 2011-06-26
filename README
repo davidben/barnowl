@@ -18,10 +18,6 @@ BarnOwl currently requires the following perl modules off of CPAN:
 AnyEvent
 Glib
 PAR
-Net::DNS
-Authen::SASL::Perl
-IO::Socket::SSL
-Digest::SHA1
 
 (Note that these are all available as Debian packages)
 We plan to soon add targets to the Makefile to check for and install
