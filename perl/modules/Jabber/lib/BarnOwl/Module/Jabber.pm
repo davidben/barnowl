@@ -630,7 +630,7 @@ sub jmuc_join {
         unless $muc =~ /@/;
 
     my $room = bare_jid($muc);
-    my $nick = res_jid($muc) // $acc->jid; # TODO: default to bare JID instead?
+    my $nick = res_jid($muc) // bare_jid($acc->jid);
 
     $acc->muc->join_room($acc->connection, $room, $nick,
                          history => { chars => 0 },
