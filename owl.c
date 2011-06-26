@@ -623,9 +623,6 @@ int main(int argc, char **argv, char **env)
   g_source_attach(source, NULL);
   g_source_unref(source);
 
-  /* FIXME!!! */
-  /* owl_select_add_pre_select_action(owl_view_iterator_delayed_delete, NULL, NULL);*/
-
   owl_log_init();
 
   owl_function_debugmsg("startup: entering main loop");

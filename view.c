@@ -26,6 +26,7 @@ struct _owl_view_iterator { /* noproto */
 };
 
 static owl_view_iterator *ovi_delete_later;
+static guint ovi_delete_later_idle;
 
 /* Internal prototypes */
 /* ov_range */
@@ -45,6 +46,7 @@ static int ovi_next(owl_view_iterator *it);
 static int ovi_prev(owl_view_iterator *it);
 static int ovi_fixup(owl_view_iterator *it);
 static int ovi_fill_forward(owl_view_iterator *it);
+static gboolean ovi_delayed_delete(gpointer data);
 
 static GList *all_views = NULL;
 
@@ -253,18 +255,22 @@ owl_view_iterator* owl_view_iterator_delete_later(owl_view_iterator *it)
 {
   it->delete_next = ovi_delete_later;
   ovi_delete_later = it;
+  if (ovi_delete_later_idle == 0)
+      ovi_delete_later_idle = g_idle_add(ovi_delayed_delete, NULL);
   return it;
 }
 
-int owl_view_iterator_delayed_delete(/*owl_ps_action*/void *d, void *p) {
-/* FIXME!!! */
+static gboolean ovi_delayed_delete(gpointer data)
+{
   owl_view_iterator *it;
   while (ovi_delete_later) {
     it = ovi_delete_later;
     ovi_delete_later = it->delete_next;
     owl_view_iterator_delete(it);
   }
-  return 0;
+  /* Unregister handler. */
+  ovi_delete_later_idle = 0;
+  return FALSE;
 }
 
 /* Internal methods to the view and iterator implementation */
