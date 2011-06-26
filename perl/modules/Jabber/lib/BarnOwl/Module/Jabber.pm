@@ -386,6 +386,7 @@ sub cmd_login {
 	die("Already logged in as " . bare_jid($jid) . "\n");
     }
 
+    # FIXME: GSSAPI.
     if (defined($password)) {
 	return do_login($jid, $password, $host, $port);
     }
