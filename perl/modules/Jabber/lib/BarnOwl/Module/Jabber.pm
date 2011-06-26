@@ -1244,14 +1244,14 @@ sub dump_twig_xml_or_raw {
 
 sub on_debug_recv {
     my ($acc, $data) = @_;
-    # TODO: Don't run dump_twig_xml unless debug is on.
+    return unless BarnOwl::getvar('debug') eq 'on';
     BarnOwl::debug(sprintf("XMPP recv>> %s\n%s",
                            $acc->jid, dump_twig_xml_or_raw($data)));
 }
 
 sub on_debug_send {
     my ($acc, $data) = @_;
-    # TODO: Don't run dump_twig_xml unless debug is on.
+    return unless BarnOwl::getvar('debug') eq 'on';
     BarnOwl::debug(sprintf("XMPP send>> %s\n%s",
                            $acc->jid, dump_twig_xml_or_raw($data)));
 }
