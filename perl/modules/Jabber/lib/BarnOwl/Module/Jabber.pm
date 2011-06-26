@@ -412,6 +412,7 @@ sub do_login {
 
         muc_message => \&on_muc_message,
         muc_subject_change => \&on_muc_subject_change,
+        muc_locked => \&on_muc_locked,
         muc_error => \&on_muc_error,
         );
     $acc->connect;
@@ -614,9 +615,7 @@ sub jmuc_join {
 
     $acc->muc->join_room($acc->connection, $room, $nick,
                          history => { chars => 0 },
-# FIXME: Provide some user feedback before requiring they manually configure.
-# Something like "Created new room 'blah'. Accept default configuration?"
-#                         create_instant => 0,
+                         create_instant => 0,
                          password => $password);
     $completion_jids{$room} = 1;
     return;
@@ -682,9 +681,11 @@ sub jmuc_configure {
     $room->make_instant(sub {
         my ($self, $err) = @_;
         if (defined($self)) {
-            queue_admin_msg("Accepted default instant configuration for $muc");
+            queue_admin_msg("Accepted default configuration for $muc");
+            $room->event(enter => $room, $room->get_me);
         } else {
             queue_admin_msg("Failed to configure $muc: " . $err->string);
+            $room->event(join_error => $room, $err);
         }
     });
 }
@@ -1187,6 +1188,28 @@ sub on_muc_subject_change {
     # Just forward it to the normal message path. We distinguish
     # subject changes when serializing.
     BarnOwl::queue_message(message_to_obj($acc, $msg, { direction => 'in' }));
+}
+
+sub on_muc_locked {
+    my ($acc, $room) = @_;
+
+    my $room_jid = $room->jid;
+    my %props = (
+        room => $room_jid,
+        to => $acc->jid,
+        type => 'admin',
+        adminheader => 'Jabber MUC: created',
+        direction => 'in');
+
+    $props{body} = "Created new room $room_jid. Accept default configuration?\n" .
+                   "(Answer with the `yes' command)";
+    $props{yescommand} = BarnOwl::quote('jmuc', 'configure', $room_jid, '-a', $acc->jid);
+    # TODO: This is not likely to be implemented in the near future,
+    # but when we get enough rope to present data forms, we should
+    # allow arbitrary room configuration.
+    # $props{nocommand} = UNIMPLEMENTED
+    $props{question} = "true";
+    BarnOwl::queue_message(BarnOwl::Message->new(%props));
 }
 
 sub on_muc_error {

@@ -40,7 +40,7 @@ sub new {
 	AnyEvent::XMPP::Ext::MUC->new(disco => $self->{ext}->{disco});
 
     # Forward MUC events so functions have easy access to the account.
-    for my $ev (qw(message error subject_change)) {
+    for my $ev (qw(message error subject_change locked)) {
 	$self->_forward_event($self->{ext}->{muc}, $ev, 'muc_' . $ev);
     }
 
