@@ -257,7 +257,7 @@ sub register_owl_commands() {
         jabberlogin => \&cmd_login,
         {
             summary => "Log in to Jabber",
-            usage   => "jabberlogin <jid> [<password>]"
+            usage   => "jabberlogin <jid> [<password>] [-h host] [-p port]"
         }
     );
     BarnOwl::new_command(
@@ -354,7 +354,17 @@ sub register_filters {
 }
 
 sub cmd_login {
-    my ($cmd, $jid, $password) = @_;
+    my $cmd = shift;
+    local @ARGV = @_;
+    my $getopt = Getopt::Long::Parser->new;
+    my ($host, $port);
+
+    $getopt->configure('pass_through', 'no_getopt_compat');
+    $getopt->getoptions(
+        'host=s' => \$host,
+        'port=i' => \$port
+    );
+    my ($jid, $password) = @ARGV;
 
     my ($uid, $componentname, $resource) = split_jid($jid);
 
@@ -370,21 +380,22 @@ sub cmd_login {
     }
 
     if (defined($password)) {
-	return do_login($jid, $password);
+	return do_login($jid, $password, $host, $port);
     }
 
-    BarnOwl::start_password("Password for $jid: ", sub { do_login($jid, $_[0]); });
+    BarnOwl::start_password("Password for $jid: ", sub { do_login($jid, $_[0], $host, $port); });
 }
 
 sub do_login {
-    my ($jid, $password) = @_;
+    my ($jid, $password, $host, $port) = @_;
 
     # Timeout borrowed from Net::Jabber-based implementation.
     # TODO: Make connect_timeout a variable.
-    # TODO: Expose $host and $port parameters in UI, in case SRV
-    # records are sad, or certificate doesn't match.
     my $acc = $accounts->add_account($jid, $password,
-                                     {connect_timeout => 10});
+                                     { connect_timeout => 10,
+				       (defined $host ? (host => $host) : ()),
+				       (defined $port ? (port => $port) : ()),
+				     });
     if (!$acc) {
 	# This shouldn't happen because we also check earlier.
 	die("Already logged in as " . bare_jid($jid) . "\n");

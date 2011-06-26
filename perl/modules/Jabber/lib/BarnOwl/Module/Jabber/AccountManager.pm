@@ -33,7 +33,7 @@ sub get_account {
 }
 
 sub add_account {
-    my ($self, $jid, $password, $host, $port, $args) = @_;
+    my ($self, $jid, $password, $args) = @_;
     my $bj = prep_bare_jid $jid;
 
     if (defined($self->{$bj})) {
@@ -41,7 +41,7 @@ sub add_account {
     }
 
     my $acc = BarnOwl::Module::Jabber::Account->new($jid, $password,
-						    $host, $port, $args);
+						    $args);
     $self->{$bj} = $acc;
     return $acc;
 }
