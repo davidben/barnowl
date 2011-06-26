@@ -843,11 +843,13 @@ sub jroster_sub {
     $name = "" unless (1 == scalar(@ARGV));
 
     foreach my $to (@ARGV) {
-        # FIXME: This logic is from the original, but it's pretty
-        # clearly bogus. It means your groups are ignored unless the
-        # contact is new.
+        # Update the contact in the roster, but only if we have
+        # something to change to avoid pointless messages.
         my $contact = $roster->get_contact($to);
-        jroster_add($acc, $name, \@groups, $purgeGroups, ($to)) unless defined($contact) && $contact->is_on_roster;
+        if (!defined($contact) || !$contact->is_on_roster ||
+            defined($name) || @groups || $purgeGroups) {
+            jroster_add($acc, $name, \@groups, $purgeGroups, ($to));
+        }
 
         # For simplicity, send this directly instead of waiting for
         # the jroster callback to give us back a Contact object. RFC
