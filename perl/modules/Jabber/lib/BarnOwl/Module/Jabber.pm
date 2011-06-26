@@ -19,8 +19,6 @@ use BarnOwl::Message::Jabber;
 use BarnOwl::Module::Jabber::AccountManager;
 use BarnOwl::Completion::Util qw(complete_flags);
 
-# TODO: Do we still need to specify which implementation here?
-use Authen::SASL qw(Perl);
 use Getopt::Long;
 Getopt::Long::Configure(qw(no_getopt_compat prefix_pattern=-|--));
 
