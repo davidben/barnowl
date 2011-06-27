@@ -572,8 +572,8 @@ sub cmd_jwrite {
     }
 
     my @cmd = ('jwrite', $jwrite_to, '-a', $jwrite_from);
-    push @cmd, '-t', $jwrite_thread if $jwrite_thread;
-    push @cmd, '-s', $jwrite_subject if $jwrite_subject;
+    push @cmd, '-t', $jwrite_thread if defined($jwrite_thread);
+    push @cmd, '-s', $jwrite_subject if defined($jwrite_subject);
 
     BarnOwl::start_edit_win(BarnOwl::quote(@cmd),
 			    sub { process_owl_jwrite($jwrite_data, $_[0]); });
