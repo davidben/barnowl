@@ -402,6 +402,11 @@ sub do_login {
     my $acc = $accounts->add_account($jid, $password,
                                      { connect_timeout => $connect_timeout,
 				       verify_cert => $verify_cert,
+    # FIXME: use_host_as_sasl_hostname is not sufficient as this only
+    # uses $host, and we want the target of the SRV record. That,
+    # however, cannot be the peername of the certificate because the
+    # SRV record was not authenticated.
+                                       use_host_as_sasl_hostname => 1,
 				       (defined $host ? (host => $host) : ()),
 				       (defined $port ? (port => $port) : ()),
 				     });
