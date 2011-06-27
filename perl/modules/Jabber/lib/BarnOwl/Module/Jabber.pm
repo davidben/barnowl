@@ -1008,7 +1008,8 @@ sub on_connected {
 sub on_connect_error {
     my ($acc, $host, $port, $message) = @_;
     # If the account isn't there, then we logged out explicitly.
-    return unless $accounts->get_account($acc->jid) == $acc;
+    my $other = $accounts->get_account($acc->jid);
+    return unless defined($other) && $other == $acc;
     my $jid = $acc->jid;
     BarnOwl::error("Error in connecting to $jid: $message");
     $accounts->remove_account($acc);
@@ -1017,7 +1018,8 @@ sub on_connect_error {
 sub on_disconnect {
     my ($acc, $host, $port, $message) = @_;
     # If the account isn't there, then we logged out explicitly.
-    return unless $accounts->get_account($acc->jid) == $acc;
+    my $other = $accounts->get_account($acc->jid);
+    return unless defined($other) && $other == $acc;
     my $jid = $acc->jid;
     $message //= '';
     BarnOwl::admin_message('Jabber', "Disconnected from $jid: $message");
