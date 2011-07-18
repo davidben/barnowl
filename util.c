@@ -724,6 +724,37 @@ CALLER_OWN char *owl_slurp(FILE *fp)
   return buf;
 }
 
+#ifdef NCURSES_EXT_COLORS
+static int _has_buggy_setcchar(void)
+{
+  /* ncurses' setcchar is buggy and scribbles over attrs when you use a
+   * colorpair past 255. Detect this bug at runtime so that a future fixed
+   * ncurses can use all pairs. Avoid color pairs past 255 when this is the
+   * case. (We can also fix it by munging the cchar_t, but that blatantly
+   * violates the documentation.) */
+  cchar_t wcval;
+  wchar_t wch[CCHARW_MAX + 1];
+  attr_t attrs;
+  short color;
+
+  wch[0] = ' ';
+  wch[1] = '\0';
+  if (setcchar(&wcval, wch, 0, 256, NULL) != OK) {
+    owl_function_error("_has_buggy_setcchar: setcchar failed, assuming buggy");
+    return 1;
+  }
+  if (getcchar(&wcval, wch, &attrs, &color, NULL) != OK) {
+    owl_function_error("_has_buggy_setcchar: getcchar failed, assuming buggy");
+    return 1;
+  }
+  if ((attrs & ~A_COLOR) != 0) {
+    owl_function_debugmsg("setcchar implementation is buggy. Clamping color pairs to 256.");
+    return 1;
+  }
+  return 0;
+}
+#endif
+
 int owl_util_get_colorpairs(void) {
 #ifndef NCURSES_EXT_COLORS
   /* Without ext-color support (an ABI change), ncurses only supports 256
@@ -731,7 +762,14 @@ int owl_util_get_colorpairs(void) {
    * ncurses is compiled without ext-color. */
   return MIN(COLOR_PAIRS, 256);
 #else
-  return COLOR_PAIRS;
+  static int has_buggy_setcchar = -1;
+  if (has_buggy_setcchar < 0)
+    has_buggy_setcchar = _has_buggy_setcchar();
+
+  if (has_buggy_setcchar)
+    return MIN(COLOR_PAIRS, 256);
+  else
+    return COLOR_PAIRS;
 #endif
 }
 
