@@ -38,7 +38,8 @@ AM_CPPFLAGS = -I$(top_srcdir)/ \
            $(GIT_FLAGS)
 
 CODELIST_SRCS=message.c mainwin.c popwin.c zephyr.c messagelist.c \
-     commands.c global.c text.c fmtext.c editwin.c util.c logging.c \
+     commands.c global.c text.c fmtext.c gmarshal_funcs.c editwin.c \
+     util.c logging.c \
      perlconfig.c keys.c functions.c zwrite.c viewwin.c help.c filter.c \
      regex.c history.c view.c dict.c variable.c filterelement.c pair.c \
      keypress.c keymap.c keybinding.c cmd.c context.c \

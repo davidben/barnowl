@@ -1,3 +1,4 @@
+
 /*  Copyright (c) 2006-2011 The BarnOwl Developers. All rights reserved.
  *  Copyright (c) 2004 James Kretchmar. All rights reserved.
  *
@@ -234,7 +235,7 @@ static inline const char *const *strs(char *const *pstr)
 typedef struct _owl_variable {
   char *name;
   int   type;  /* OWL_VARIABLE_* */
-  GValue gval_default
+  GValue gval_default;
   const char *validsettings;	/* documentation of valid settings */
   char *summary;		/* summary of usage */
   char *description;		/* detailed description */
@@ -261,7 +262,6 @@ typedef struct _owl_variable {
                                 /* converts val to a string;
 				 * caller must free the result */
   GClosure *delete_fn;
-  void (*delete_fn)(struct _owl_variable *v);
 				/* frees val as needed */
 } owl_variable;
 
@@ -274,28 +274,28 @@ typedef struct _owl_variable_init_params {
   char *summary;		/* summary of usage */
   char *description;		/* detailed description */
   void *val;                    /* current value */
-  int  (*validate_fn)(const struct _owl_variable *v, const void *newval);
+  GCallback validate_fn;
                                 /* returns 1 if newval is valid */
-  int  (*set_fn)(struct _owl_variable *v, const void *newval); 
+  GCallback set_fn;
                                 /* sets the variable to a value
 				 * of the appropriate type.
 				 * unless documented, this 
 				 * should make a copy. 
 				 * returns 0 on success. */
-  int  (*set_fromstring_fn)(struct _owl_variable *v, const char *newval);
+  GCallback set_fromstring_fn;
                                 /* sets the variable to a value
 				 * of the appropriate type.
 				 * unless documented, this 
 				 * should make a copy. 
 				 * returns 0 on success. */
-  const void *(*get_fn)(const struct _owl_variable *v);
+  GCallback get_fn;
 				/* returns a reference to the current value.
 				 * WARNING:  this approach is hard to make
 				 * thread-safe... */
-  CALLER_OWN char *(*get_tostring_fn)(const struct _owl_variable *v, const void *val);
+  GCallback get_tostring_fn;
                                 /* converts val to a string;
 				 * caller must free the result */
-  void (*delete_fn)(struct _owl_variable *v);
+  GCallback delete_fn;
 				/* frees val as needed */
 } owl_variable_init_params;
 
