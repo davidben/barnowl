@@ -1,19 +1,24 @@
 #include "owl.h"
 
-owl_filter *owl_filter_new_fromstring(const char *name, const char *string)
+GQuark owl_filter_error_quark(void)
+{
+  return g_quark_from_static_string("owl-filter-error-quark");
+}
+
+owl_filter *owl_filter_new_fromstring(const char *name, const char *string, GError **err)
 {
   owl_filter *f;
   char **argv;
   int argc;
 
   argv = owl_parseline(string, &argc);
-  f = owl_filter_new(name, argc, strs(argv));
+  f = owl_filter_new(name, argc, strs(argv), err);
   g_strfreev(argv);
 
   return f;
 }
 
-owl_filter *owl_filter_new(const char *name, int argc, const char *const *argv)
+owl_filter *owl_filter_new(const char *name, int argc, const char *const *argv, GError **err)
 {
   owl_filter *f;
 
@@ -43,14 +48,15 @@ owl_filter *owl_filter_new(const char *name, int argc, const char *const *argv)
     argv+=2;
   }
 
-  if (!(f->root = owl_filter_parse_expression(argc, argv, NULL))) {
+  if (!(f->root = owl_filter_parse_expression(argc, argv, NULL, err))) {
     owl_filter_delete(f);
     return NULL;
   }
 
   /* Now check for recursion. */
   if (owl_filter_is_toodeep(f)) {
-    owl_function_error("Filter loop!");
+    g_set_error(err, OWL_FILTER_ERROR, OWL_FILTER_ERROR_LOOP,
+                "Filter loop!");
     owl_filter_delete(f);
     return NULL;
   }
@@ -61,27 +67,39 @@ owl_filter *owl_filter_new(const char *name, int argc, const char *const *argv)
 
 /* A primitive expression is one without any toplevel ``and'' or ``or''s*/
 
-static owl_filterelement * owl_filter_parse_primitive_expression(int argc, const char *const *argv, int *next)
+static owl_filterelement * owl_filter_parse_primitive_expression(int argc, const char *const *argv, int *next, GError **err)
 {
   owl_filterelement *fe, *op;
   int i = 0, skip;
 
-  if(!argc) return NULL;
+  if (!argc) {
+    g_set_error(err, OWL_FILTER_ERROR, OWL_FILTER_ERROR_MISSING_TOKEN,
+                "Expected expression");
+    return NULL;
+  }
 
   fe = g_new(owl_filterelement, 1);
   owl_filterelement_create(fe);
 
   if(!strcasecmp(argv[i], "(")) {
     i++;
-    op = owl_filter_parse_expression(argc-i, argv+i, &skip);
+    op = owl_filter_parse_expression(argc-i, argv+i, &skip, err);
     if(!op) goto err;
     i += skip;
-    if(i >= argc) goto err;
-    if(strcasecmp(argv[i++], ")")) goto err;
+    if (i >= argc) {
+      g_set_error(err, OWL_FILTER_ERROR, OWL_FILTER_ERROR_MISSING_TOKEN,
+                  "Expected expression after '('");
+      goto err;
+    }
+    if (strcasecmp(argv[i++], ")")) {
+      g_set_error(err, OWL_FILTER_ERROR, OWL_FILTER_ERROR_BAD_TOKEN,
+                  "Expected ')', got '%s'", argv[i-1]);
+      goto err;
+    }
     owl_filterelement_create_group(fe, op);
   } else if(!strcasecmp(argv[i], "not")) {
     i++;
-    op = owl_filter_parse_primitive_expression(argc-i, argv+i, &skip);
+    op = owl_filter_parse_primitive_expression(argc-i, argv+i, &skip, err);
     if(!op) goto err;
     i += skip;
     owl_filterelement_create_not(fe, op);
@@ -92,13 +110,17 @@ static owl_filterelement * owl_filter_parse_primitive_expression(int argc, const
     i++;
     owl_filterelement_create_false(fe);
   } else {
-    if(argc == 1) goto err;
+    if (argc == 1) {
+      g_set_error(err, OWL_FILTER_ERROR, OWL_FILTER_ERROR_MISSING_TOKEN,
+                  "Missing argument for '%s'", *argv);
+      goto err;
+    }
     if(!strcasecmp(*argv, "filter")) {
       owl_filterelement_create_filter(fe, *(argv+1));
     } else if(!strcasecmp(*argv, "perl")) {
       owl_filterelement_create_perl(fe, *(argv+1));
     } else {
-      if(owl_filterelement_create_re(fe, *argv, *(argv+1))) {
+      if (!owl_filterelement_create_re(fe, *argv, *(argv+1), err)) {
         goto err;
       }
     }
@@ -108,6 +130,8 @@ static owl_filterelement * owl_filter_parse_primitive_expression(int argc, const
   if(next) {
     *next = i;
   } else if(i != argc) {
+    g_set_error(err, OWL_FILTER_ERROR, OWL_FILTER_ERROR_EXTRA_TOKEN,
+                "Too many arguments");
     goto err;
   }
   return fe;
@@ -117,19 +141,19 @@ err:
   return NULL;
 }
 
-owl_filterelement * owl_filter_parse_expression(int argc, const char *const *argv, int *next)
+owl_filterelement * owl_filter_parse_expression(int argc, const char *const *argv, int *next, GError **err)
 {
   int i = 0, skip;
   owl_filterelement * op1 = NULL, * op2 = NULL, *tmp;
 
-  op1 = owl_filter_parse_primitive_expression(argc-i, argv+i, &skip);
+  op1 = owl_filter_parse_primitive_expression(argc-i, argv+i, &skip, err);
   i += skip;
   if(!op1) goto err;
 
   while(i < argc) {
     if(strcasecmp(argv[i], "and") &&
        strcasecmp(argv[i], "or")) break;
-    op2 = owl_filter_parse_primitive_expression(argc-i-1, argv+i+1, &skip);
+    op2 = owl_filter_parse_primitive_expression(argc-i-1, argv+i+1, &skip, err);
     if(!op2) goto err;
     tmp = g_new(owl_filterelement, 1);
     if(!strcasecmp(argv[i], "and")) {
@@ -145,6 +169,8 @@ owl_filterelement * owl_filter_parse_expression(int argc, const char *const *arg
   if(next) {
     *next = i;
   } else if(i != argc) {
+    g_set_error(err, OWL_FILTER_ERROR, OWL_FILTER_ERROR_EXTRA_TOKEN,
+                "Too many arguments");
     goto err;
   }
   return op1;

@@ -430,11 +430,13 @@ int owl_variable_regtest(void) {
 
 static int owl_filter_test_string(const char *filt, const owl_message *m, int shouldmatch)
 {
+  GError *err = NULL;
   owl_filter *f;
   int ok;
   int failed = 0;
-  if ((f = owl_filter_new_fromstring("test-filter", filt)) == NULL) {
-    printf("not ok can't parse %s\n", filt);
+  if ((f = owl_filter_new_fromstring("test-filter", filt, &err)) == NULL) {
+    printf("not ok can't parse %s: %s\n", filt, err->message);
+    g_error_free(err);
     failed = 1;
     goto out;
   }
@@ -495,24 +497,24 @@ int owl_filter_regtest(void) {
   TEST_FILTER("false and false or true", 1);
   TEST_FILTER("true and false or false", 0);
 
-  f1 = owl_filter_new_fromstring("f1", "class owl");
+  f1 = owl_filter_new_fromstring("f1", "class owl", NULL);
   owl_global_add_filter(&g, f1);
   TEST_FILTER("filter f1", 1);
   owl_global_remove_filter(&g, "f1");
 
   /* Test recursion prevention */
-  FAIL_UNLESS("self reference", (f2 = owl_filter_new_fromstring("test", "filter test")) == NULL);
+  FAIL_UNLESS("self reference", (f2 = owl_filter_new_fromstring("test", "filter test", NULL)) == NULL);
   owl_filter_delete(f2);
 
   /* mutual recursion */
-  f3 = owl_filter_new_fromstring("f3", "filter f4");
+  f3 = owl_filter_new_fromstring("f3", "filter f4", NULL);
   owl_global_add_filter(&g, f3);
-  FAIL_UNLESS("mutual recursion", (f4 = owl_filter_new_fromstring("f4", "filter f3")) == NULL);
+  FAIL_UNLESS("mutual recursion", (f4 = owl_filter_new_fromstring("f4", "filter f3", NULL)) == NULL);
   owl_global_remove_filter(&g, "f3");
   owl_filter_delete(f4);
 
   /* support referencing a filter several times */
-  FAIL_UNLESS("DAG", (f5 = owl_filter_new_fromstring("dag", "filter f1 or filter f1")) != NULL);
+  FAIL_UNLESS("DAG", (f5 = owl_filter_new_fromstring("dag", "filter f1 or filter f1", NULL)) != NULL);
   owl_filter_delete(f5);
 
   owl_message_cleanup(&m);

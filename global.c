@@ -866,7 +866,8 @@ void owl_global_setup_default_filters(owl_global *g)
 
   for (i = 0; filters[i].name != NULL; i++)
     owl_global_add_filter(g, owl_filter_new_fromstring(filters[i].name,
-                                                       filters[i].desc));
+                                                       filters[i].desc,
+                                                       NULL));
 }
 
 FILE *owl_global_get_debug_file_handle(owl_global *g) {

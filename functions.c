@@ -2133,6 +2133,7 @@ void owl_function_change_currentview_filter(const char *filtname)
  */
 bool owl_function_create_filter(int argc, const char *const *argv)
 {
+  GError *err = NULL;
   owl_filter *f;
   const owl_view *v;
   int inuse = 0;
@@ -2183,9 +2184,10 @@ bool owl_function_create_filter(int argc, const char *const *argv)
   }
 
   /* create the filter and check for errors */
-  f = owl_filter_new(argv[1], argc-2, argv+2);
+  f = owl_filter_new(argv[1], argc-2, argv+2, &err);
   if (f == NULL) {
-    owl_function_error("Invalid filter: %s", argv[1]);
+    owl_function_error("Filter '%s' is invalid: %s.", argv[1], err->message);
+    g_error_free(err);
     return false;
   }
 
@@ -2317,6 +2319,7 @@ void owl_function_show_zpunts(void)
  */
 CALLER_OWN char *owl_function_classinstfilt(const char *c, const char *i, int related) 
 {
+  GError *err = NULL;
   owl_filter *f;
   char *filtname;
   char *tmpclass, *tmpinstance = NULL;
@@ -2376,11 +2379,12 @@ CALLER_OWN char *owl_function_classinstfilt(const char *c, const char *i, int re
   g_free(tmpclass);
   g_free(tmpinstance);
 
-  f = owl_filter_new_fromstring(filtname, buf->str);
+  f = owl_filter_new_fromstring(filtname, buf->str, &err);
   g_string_free(buf, true);
   if (f == NULL) {
     /* Couldn't make a filter for some reason. Return NULL. */
-    owl_function_error("Error creating filter '%s'", filtname);
+    owl_function_error("Error creating filter '%s': %s", filtname, err->message);
+    g_error_free(err);
     g_free(filtname);
     filtname = NULL;
     goto done;
@@ -2404,6 +2408,7 @@ done:
  */
 CALLER_OWN char *owl_function_zuserfilt(const char *longuser)
 {
+  GError *err = NULL;
   owl_filter *f;
   char *argbuff, *esclonguser, *shortuser, *filtname;
 
@@ -2426,12 +2431,14 @@ CALLER_OWN char *owl_function_zuserfilt(const char *longuser)
       esclonguser, esclonguser, esclonguser);
   g_free(esclonguser);
 
-  f = owl_filter_new_fromstring(filtname, argbuff);
+  f = owl_filter_new_fromstring(filtname, argbuff, &err);
   g_free(argbuff);
 
   if (f == NULL) {
     /* Couldn't make a filter for some reason. Return NULL. */
-    owl_function_error("Error creating filter '%s'", filtname);
+    owl_function_error("Error creating filter '%s': %s", filtname,
+                       err->message);
+    g_error_free(err);
     g_free(filtname);
     return NULL;
   }
@@ -2450,6 +2457,7 @@ CALLER_OWN char *owl_function_zuserfilt(const char *longuser)
  */
 CALLER_OWN char *owl_function_aimuserfilt(const char *user)
 {
+  GError *err = NULL;
   owl_filter *f;
   char *argbuff, *filtname;
   char *escuser;
@@ -2471,11 +2479,13 @@ CALLER_OWN char *owl_function_aimuserfilt(const char *user)
       escuser, owl_global_get_aim_screenname_for_filters(&g));
   g_free(escuser);
 
-  f = owl_filter_new_fromstring(filtname, argbuff);
+  f = owl_filter_new_fromstring(filtname, argbuff, &err);
   g_free(argbuff);
 
   if (f == NULL) {
-    owl_function_error("Error creating filter '%s'", filtname);
+    owl_function_error("Error creating filter '%s': %s", filtname,
+                       err->message);
+    g_error_free(err);
     g_free(filtname);
     return NULL;
   }
@@ -2488,6 +2498,7 @@ CALLER_OWN char *owl_function_aimuserfilt(const char *user)
 
 CALLER_OWN char *owl_function_typefilt(const char *type)
 {
+  GError *err = NULL;
   owl_filter *f;
   char *argbuff, *filtname, *esctype;
 
@@ -2505,11 +2516,13 @@ CALLER_OWN char *owl_function_typefilt(const char *type)
   argbuff = owl_string_build_quoted("type ^%q$", esctype);
   g_free(esctype);
 
-  f = owl_filter_new_fromstring(filtname, argbuff);
+  f = owl_filter_new_fromstring(filtname, argbuff, &err);
   g_free(argbuff);
 
   if (f == NULL) {
-    owl_function_error("Error creating filter '%s'", filtname);
+    owl_function_error("Error creating filter '%s': %s", filtname,
+                       err->message);
+    g_error_free(err);
     g_free(filtname);
     return NULL;
   }
@@ -2544,6 +2557,7 @@ void owl_function_delete_curview_msgs(int flag)
 
 static CALLER_OWN char *owl_function_smartfilter_cc(const owl_message *m)
 {
+  GError *err = NULL;
   const char *ccs;
   char *ccs_quoted;
   char *filtname;
@@ -2566,11 +2580,13 @@ static CALLER_OWN char *owl_function_smartfilter_cc(const owl_message *m)
   g_string_append_c(buf, '$');
   g_free(ccs_quoted);
 
-  f = owl_filter_new_fromstring(filtname, buf->str);
+  f = owl_filter_new_fromstring(filtname, buf->str, &err);
   g_string_free(buf, true);
 
   if (f == NULL) {
-    owl_function_error("Error creating filter '%s'", filtname);
+    owl_function_error("Error creating filter '%s': %s", filtname,
+                       err->message);
+    g_error_free(err);
     g_free(filtname);
     return NULL;
   }
@@ -2858,15 +2874,18 @@ void owl_function_zpunt(const char *class, const char *inst, const char *recip, 
 
 void owl_function_punt(int argc, const char *const *argv, int direction)
 {
+  GError *err = NULL;
   owl_filter *f;
   GPtrArray *fl;
   int i;
   fl=owl_global_get_puntlist(&g);
 
   /* first, create the filter */
-  f = owl_filter_new("punt-filter", argc, argv);
+  f = owl_filter_new("punt-filter", argc, argv, &err);
   if (f == NULL) {
-    owl_function_error("Error creating filter for zpunt");
+    owl_function_error("Error creating filter for zpunt: %s",
+                       err->message);
+    g_error_free(err);
     return;
   }
 

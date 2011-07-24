@@ -443,6 +443,15 @@ typedef struct _owl_filterelement {
   char *field;
 } owl_filterelement;
 
+#define OWL_FILTER_ERROR (owl_filter_error_quark())
+
+enum OwlFilterError {
+  OWL_FILTER_ERROR_BAD_TOKEN,
+  OWL_FILTER_ERROR_MISSING_TOKEN,
+  OWL_FILTER_ERROR_EXTRA_TOKEN,
+  OWL_FILTER_ERROR_LOOP,
+};
+
 typedef struct _owl_filter {
   char *name;
   owl_filterelement * root;

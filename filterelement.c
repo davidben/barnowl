@@ -210,21 +210,18 @@ void owl_filterelement_create_false(owl_filterelement *fe)
   fe->print_elt = owl_filterelement_print_false;
 }
 
-int owl_filterelement_create_re(owl_filterelement *fe, const char *field, const char *re)
+bool owl_filterelement_create_re(owl_filterelement *fe, const char *field, const char *re, GError **err)
 {
-  GError *err = NULL;
   owl_filterelement_create(fe);
   fe->field=g_strdup(field);
-  if(!owl_regex_create(&(fe->re), re, &err)) {
-    owl_function_error("Error in regular expression: %s", err->message);
-    g_error_free(err);
+  if(!owl_regex_create(&(fe->re), re, err)) {
     g_free(fe->field);
     fe->field = NULL;
-    return (-1);
+    return false;
   }
   fe->match_message = owl_filterelement_match_re;
   fe->print_elt = owl_filterelement_print_re;
-  return 0;
+  return true;
 }
 
 void owl_filterelement_create_filter(owl_filterelement *fe, const char *name)
