@@ -719,7 +719,7 @@ int owl_fmtext_regtest(void) {
   /* Test owl_fmtext_search. */
   owl_fmtext_clear(&fm1);
   owl_fmtext_append_normal(&fm1, "123123123123");
-  owl_regex_create(&re, "12");
+  owl_regex_create(&re, "12", NULL);
   {
     int count = 0, offset;
     offset = owl_fmtext_search(&fm1, &re, 0);

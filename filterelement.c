@@ -212,9 +212,12 @@ void owl_filterelement_create_false(owl_filterelement *fe)
 
 int owl_filterelement_create_re(owl_filterelement *fe, const char *field, const char *re)
 {
+  GError *err = NULL;
   owl_filterelement_create(fe);
   fe->field=g_strdup(field);
-  if(owl_regex_create(&(fe->re), re)) {
+  if(!owl_regex_create(&(fe->re), re, &err)) {
+    owl_function_error("Error in regular expression: %s", err->message);
+    g_error_free(err);
     g_free(fe->field);
     fe->field = NULL;
     return (-1);

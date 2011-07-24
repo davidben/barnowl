@@ -423,6 +423,8 @@ typedef struct _owl_messagelist {
   GPtrArray *list;
 } owl_messagelist;
 
+#define OWL_REGEX_ERROR (owl_regex_error_quark())
+
 typedef struct _owl_regex {
   int negate;
   char *string;

@@ -2967,7 +2967,7 @@ void owl_function_set_search(const char *string)
 {
   owl_regex re;
 
-  if (string && owl_regex_create_quoted(&re, string) == 0) {
+  if (string && owl_regex_create_quoted(&re, string)) {
     owl_global_set_search_re(&g, &re);
     owl_regex_cleanup(&re);
   } else {

@@ -1,12 +1,17 @@
 #include "owl.h"
 
+GQuark owl_regex_error_quark(void)
+{
+  return g_quark_from_static_string("owl-regex-error-quark");
+}
+
 void owl_regex_init(owl_regex *re)
 {
   re->negate=0;
   re->string=NULL;
 }
 
-int owl_regex_create(owl_regex *re, const char *string)
+bool owl_regex_create(owl_regex *re, const char *string, GError **err)
 {
   int ret;
   size_t errbuf_size;
@@ -28,23 +33,29 @@ int owl_regex_create(owl_regex *re, const char *string)
     errbuf_size = regerror(ret, NULL, NULL, 0);
     errbuf = g_new(char, errbuf_size);
     regerror(ret, NULL, errbuf, errbuf_size);
-    owl_function_error("Error in regular expression: %s", errbuf);
+    g_set_error(err, OWL_REGEX_ERROR, ret, "%s", errbuf);
     g_free(errbuf);
     g_free(re->string);
-    re->string=NULL;
-    return(-1);
+    re->string = NULL;
+    return false;
   }
 
-  return(0);
+  return true;
 }
 
-int owl_regex_create_quoted(owl_regex *re, const char *string)
+bool owl_regex_create_quoted(owl_regex *re, const char *string)
 {
+  GError *err = NULL;
   char *quoted;
   int ret;
   
   quoted = owl_text_quote(string, OWL_REGEX_QUOTECHARS, OWL_REGEX_QUOTEWITH);
-  ret = owl_regex_create(re, quoted);
+  ret = owl_regex_create(re, quoted, &err);
+  if (!ret) {
+    /* This should not happen. */
+    owl_function_error("Error in quoted regular expression: %s", err->message);
+    g_error_free(err);
+  }
   g_free(quoted);
   return ret;
 }
@@ -84,7 +95,7 @@ const char *owl_regex_get_string(const owl_regex *re)
 
 void owl_regex_copy(const owl_regex *a, owl_regex *b)
 {
-  owl_regex_create(b, a->string);
+  owl_regex_create(b, a->string, NULL);
 }
 
 void owl_regex_cleanup(owl_regex *re)
