@@ -64,9 +64,16 @@ sub __format_attributes {
     for my $k (@keys) {
         my $v = $self->{$k};
         unless($skip{$k}) {
-            # FIXME: Restore version without length limit. Indent
-            # lines after the first, etc.
-            $text .= sprintf("  %-15.15s: %-35.35s\n", $k, $v);
+            # Multi-line attributes should display in full, with
+            # trailing lines indented.
+            my $prefix = sprintf("  %-15.15s: ", $k);
+            my @lines = split("\n", $v);
+            my $line = shift(@lines);
+            $text .= "$prefix$line\n";
+            $prefix =~ s/./ /g;
+            foreach my $line (@lines) {
+                $text .= "$prefix$line\n";
+            }
         }
     }
     return $text;
