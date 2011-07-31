@@ -3,11 +3,13 @@ use warnings;
 
 package BarnOwl::Sepbar;
 
+use AnyEvent;
+
 my $count;
 my $view;
 my $start;
 my $iter;
-my $timer;
+my $idle_source;
 
 sub render {
     my $ret = '';
@@ -67,8 +69,9 @@ sub messages_before_point {
         } elsif ($iter->cmp($point) > 0) {
             $pfx = "<";
         }
-        $timer->stop if $timer;
-        $timer = BarnOwl::Timer->new({after => 0, cb => sub {BarnOwl::command("nop")}});
+        $idle_source ||= AnyEvent->idle(cb => sub {BarnOwl::command("nop")});
+    } else {
+        undef $idle_source;
     }
     return "$pfx$count";
 }
