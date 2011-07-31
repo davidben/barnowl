@@ -64,7 +64,7 @@ const char *owl_message_get_attribute_value(const owl_message *m, const char *at
   return SvPV_nolen(attr);
 }
 
-char *owl_message_get_meta(const owl_message *m, const char *attr)
+const char *owl_message_get_meta(const owl_message *m, const char *attr)
 {
   const char *argv[] = {attr};
   char *perlrv;

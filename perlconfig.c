@@ -422,12 +422,12 @@ void owl_perlconfig_dec_refcnt(void *data)
   SvREFCNT_dec(v);
 }
 
-SV * owl_perl_new(char *class)
+SV * owl_perl_new(const char *class)
 {
   return owl_perl_new_argv(class, NULL, 0);
 }
 
-SV * owl_perl_new_argv(char *class, const char **argv, int argc)
+SV * owl_perl_new_argv(const char *class, const char **argv, int argc)
 {
   SV *obj;
   int i;
