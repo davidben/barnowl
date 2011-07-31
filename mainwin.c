@@ -68,17 +68,6 @@ static void owl_mainwin_redraw(owl_window *w, WINDOW *recwin, void *user_data)
   recwinlines=owl_global_get_recwin_lines(&g);
   topmsg=owl_global_get_topmsg(&g);
 
-  /* if there are no messages or if topmsg is past the end of the messages,
-   * just draw a blank screen */
-  if (owl_view_is_empty(v)) {
-      /* if (owl_view_is_empty(v)) {
-      owl_global_set_topmsg(&g, NULL);
-      } */
-    mw->curtruncated=0;
-    owl_view_iterator_invalidate(mw->lastdisplayed);
-    return;
-  }
-
   /* write the messages out */
   isfull=0;
   mw->curtruncated=0;
