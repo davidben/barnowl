@@ -243,6 +243,8 @@ void owl_view_iterator_next(owl_view_iterator *it)
 
 owl_message* owl_view_iterator_get_message(owl_view_iterator *it)
 {
+  if (it->view == NULL)
+    return NULL;
   ovi_fixup(it);
   return owl_messagelist_get_by_id(owl_global_get_msglist(&g),
                                    it->index);
@@ -250,6 +252,7 @@ owl_message* owl_view_iterator_get_message(owl_view_iterator *it)
 
 int owl_view_iterator_cmp(owl_view_iterator *it1, owl_view_iterator *it2)
 {
+  /* Invalid iterators will give some bogus order, meh. */
   ovi_fixup(it1);
   ovi_fixup(it2);
   return it1->index - it2->index;
@@ -509,8 +512,10 @@ static int ovi_next(owl_view_iterator *it)
 static int ovi_prev(owl_view_iterator *it)
 {
   int old_index = it->index;
-  ov_range *r = ovi_range(it);
-
+  ov_range *r;
+  if (it->view == NULL)
+    return 0;
+  r = ovi_range(it);
   do {
     if (it->index == r->next_bk) {
       ov_fill_back(it->view, r);
@@ -528,6 +533,8 @@ static int ovi_prev(owl_view_iterator *it)
 
 static int ovi_fixup(owl_view_iterator *it)
 {
+  if (it->view == NULL)
+    return 0;
   do {
     while (it->index < ovi_range(it)->next_fwd) {
       if (ov_marked(it->view, it->index))
