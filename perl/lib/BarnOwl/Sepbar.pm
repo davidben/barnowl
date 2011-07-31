@@ -40,7 +40,7 @@ sub messages_before_point {
         $start = BarnOwl::View::Iterator->new();
         $start->clone($iter);
     }
-    my ($steps, $limit) = (0, 10000);
+    my ($steps, $limit) = (0, 1000);
     my $point = BarnOwl::curmsg_iterator();
 
     my $step = sub {
