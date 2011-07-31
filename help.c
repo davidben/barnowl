@@ -1,8 +1,8 @@
 #include "owl.h"
-#include <string.h>
 
 void owl_help(void)
 {
+  const owl_variable *v;
   owl_fmtext fm;
   const char *varname;
   GPtrArray *varnames;
@@ -64,11 +64,11 @@ void owl_help(void)
      "    !             Invert the current view\n"
      "\n"
      "    l             Print a zephyr/AIM buddy listing\n"
-     "    A             Toggle zaway\n"
+     "    A             Toggle away\n"
      "    o             Toggle one-line display mode\n"
      "    w             Open a URL in the current message\n"
      "    C-l           Refresh the screen\n"
-     "    C-z           Suspend Owl\n"
+     "    C-z           Suspend BarnOwl\n"
      "    h             Print this help message\n"
      "    : , M-x       Enter command mode\n"
      "\n"
@@ -82,9 +82,9 @@ void owl_help(void)
      );
   owl_fmtext_append_normal
     (&fm, 
-     "    quit, exit    Exit owl\n"
+     "    quit, exit    Exit BarnOwl\n"
      "    help          Get help about commands\n"
-     "    show          Show information about owl (see detailed help)\n"
+     "    show          Show information about BarnOwl (see detailed help)\n"
      "\n"
      "    zwrite        Send a zephyr\n"
      "    aimlogin      Login to AIM\n"
@@ -100,8 +100,8 @@ void owl_help(void)
      "\n"
      "    set           Set a variable (see list below)\n"
      "    print         Print a variable's value (variables listed below)\n"
-     "    startup       Set a command to be run at every Owl startup\n"
-     "    unstartup     Remove a command to be run at every Owl startup\n"
+     "    startup       Set a command to be run at every BarnOwl startup\n"
+     "    unstartup     Remove a command to be run at every BarnOwl startup\n"
      "\n"
      "    getsubs       Print a list of current subscriptions\n"
      "    unsuball      Unsubscribe from all zephyr classes\n"
@@ -120,9 +120,9 @@ void owl_help(void)
      "    alias         Create a command alias\n"
      "    dump          Dump messagelist as text to a file\n"
      "\n"
-     "    about         Print information about owl\n"
-     "    status        Print status information about the running owl\n"
-     "    version       Print the version number of owl\n"
+     "    about         Print information about BarnOwl\n"
+     "    status        Print status information about the running BarnOwl\n"
+     "    version       Print the version number of BarnOwl\n"
      "\n");
   
   /* help for variables */
@@ -132,7 +132,8 @@ void owl_help(void)
   for (i = 0; i < varnames->len; i++) {
     varname = varnames->pdata[i];
     if (varname && varname[0]!='_') {
-      owl_variable_describe(owl_global_get_vardict(&g), varname, &fm);
+      v = owl_variable_get_var(owl_global_get_vardict(&g), varname);
+      owl_variable_describe(v, &fm);
     }
   }
   owl_ptr_array_free(varnames, g_free);

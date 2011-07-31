@@ -1,9 +1,5 @@
-#include <getopt.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 #include "owl.h"
+#include <getopt.h>
 
 /* fn is "char *foo(int argc, const char *const *argv, const char *buff)" */
 #define OWLCMD_ARGS(name, fn, ctx, summary, usage, description) \
@@ -49,16 +45,16 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "zlog in [tty]\nzlog out",
 	      "zlog in will send a login notification, zlog out will send a\n"
 	      "logout notification.  By default a login notification is sent\n"
-	      "when owl is started and a logout notification is sent when owl\n"
+	      "when BarnOwl is started and a logout notification is sent when owl\n"
 	      "is exited.  This behavior can be changed with the 'startuplogin'\n"
 	      "and 'shutdownlogout' variables.  If a tty is specified for zlog in\n"
-	      "then the owl variable 'tty' will be set to that string, causing\n"
+	      "then the BarnOwl variable 'tty' will be set to that string, causing\n"
 	      "it to be used as the zephyr location tty.\n"),
 
   OWLCMD_VOID("quit", owl_command_quit, OWL_CTX_ANY,
-	      "exit owl",
+	      "exit BarnOwl",
 	      "",
-	      "Exit owl and run any shutdown activities."),
+	      "Exit BarnOwl and run any shutdown activities."),
   OWLCMD_ALIAS("exit", "quit"),
   OWLCMD_ALIAS("q",    "quit"),
 
@@ -179,20 +175,20 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "are used print the value of all variables.\n"),
 
   OWLCMD_ARGS("startup", owl_command_startup, OWL_CTX_ANY,
-	      "run a command and set it to be run at every Owl startup",
+	      "run a command and set it to be run at every BarnOwl startup",
 	      "startup <commands> ...",
 	      "Everything on the command line after the startup command\n"
-	      "is executed as a normal owl command and is also placed in\n"
-	      "a file so that the command is executed every time owl\n"
+	      "is executed as a normal BarnOwl command and is also placed in\n"
+	      "a file so that the command is executed every time BarnOwl\n"
 	      "is started"),
 
   OWLCMD_ARGS("unstartup", owl_command_unstartup, OWL_CTX_ANY,
-	      "remove a command from the list of those to be run at Owl startup",
+	      "remove a command from the list of those to be run at BarnOwl startup",
 	      "unstartup <commands> ...",
 	      ""),
 
   OWLCMD_VOID("version", owl_command_version, OWL_CTX_ANY,
-	      "print the version of the running owl", "", ""),
+	      "print the version of the running BarnOwl", "", ""),
 
   OWLCMD_ARGS("subscribe", owl_command_subscribe, OWL_CTX_ANY,
 	      "subscribe to a zephyr class, instance, recipient",
@@ -203,7 +199,7 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "If the -t option is present the subscription will\n"
 	      "only be temporary, i.e., it will not be written to\n"
 	      "the subscription file and will therefore not be\n"
-	      "present the next time owl is started.\n"),
+	      "present the next time BarnOwl is started.\n"),
   OWLCMD_ALIAS("sub", "subscribe"),
 
   OWLCMD_ARGS("unsubscribe", owl_command_unsubscribe, OWL_CTX_ANY,
@@ -215,7 +211,7 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "If the -t option is present the unsubscription will\n"
 	      "only be temporary, i.e., it will not be updated in\n"
 	      "the subscription file and will therefore not be\n"
-	      "in effect the next time owl is started.\n"),
+	      "in effect the next time BarnOwl is started.\n"),
   OWLCMD_ALIAS("unsub", "unsubscribe"),
 
   OWLCMD_VOID("unsuball", owl_command_unsuball, OWL_CTX_ANY,
@@ -233,9 +229,9 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "Dump messages in current view to the named file."),
 
   OWLCMD_ARGS("source", owl_command_source, OWL_CTX_ANY,
-	      "execute owl commands from a file",
+	      "execute BarnOwl commands from a file",
 	      "source <filename>",
-	      "Execute the owl commands in <filename>.\n"),
+	      "Execute the BarnOwl commands in <filename>.\n"),
 
   OWLCMD_ARGS("aim", owl_command_aim, OWL_CTX_INTERACTIVE,
 	      "AIM specific commands",
@@ -304,7 +300,7 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "", ""),
   
   OWLCMD_ARGS("help", owl_command_help, OWL_CTX_INTERACTIVE,
-	      "display help on using owl",
+	      "display help on using BarnOwl",
 	      "help [command]", ""),
 
   OWLCMD_ARGS("zlist", owl_command_zlist, OWL_CTX_INTERACTIVE,
@@ -417,7 +413,7 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "redraw the entire window", "", ""),
 
   OWLCMD_VOID("suspend", owl_command_suspend, OWL_CTX_ANY,
-	      "suspend owl", "", ""),
+	      "suspend BarnOwl", "", ""),
 
   OWLCMD_ARGS("echo", owl_command_echo, OWL_CTX_ANY,
 	      "pops up a message in popup window",
@@ -508,10 +504,10 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "The file should contain a list of usernames, one per line."),
 
   OWLCMD_VOID("about", owl_command_about, OWL_CTX_INTERACTIVE,
-	      "print information about owl", "", ""),
+	      "print information about BarnOwl", "", ""),
 
   OWLCMD_VOID("status", owl_command_status, OWL_CTX_ANY,
-	      "print status information about the running owl", "", ""),
+	      "print status information about the running BarnOwl", "", ""),
   
   OWLCMD_ARGS("zlocate", owl_command_zlocate, OWL_CTX_INTERACTIVE,
 	      "locate a user",
@@ -589,7 +585,7 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "\n"
 	      "The other usages listed above are abbreviated forms that simply set\n"
 	      "the filter of the current view. The -d option allows you to write a\n"
-              "filter expression that will be dynamically created by owl and then\n"
+              "filter expression that will be dynamically created by BarnOwl and then\n"
               "applied as the view's filter\n"
 	      "SEE ALSO: filter, viewclass, viewuser\n"),
 
@@ -675,7 +671,7 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "Show styles will list the names of all styles available\n"
 	      "for formatting messages.\n\n"
 	      "Show variables will list the names of all variables.\n\n"
-	      "Show errors will show a list of errors encountered by Owl.\n\n"
+	      "Show errors will show a list of errors encountered by BarnOwl.\n\n"
 	      "SEE ALSO: filter, view, alias, bindkey, help\n"),
   
   OWLCMD_ARGS("delete", owl_command_delete, OWL_CTX_INTERACTIVE,
@@ -692,6 +688,17 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "If 'view' is specified, deletes all messages in the\n"
 	      "current view.\n"),
   OWLCMD_ALIAS("del", "delete"),
+
+#if 0
+  OWLCMD_ARGS("delete-and-expunge", owl_command_delete_and_expunge, OWL_CTX_INTERACTIVE,
+              "delete a message",
+              "delete-and-expunge [-id msgid] [-q | --quiet]",
+              "If no message id is specified the current message is deleted.\n"
+              "Otherwise the message with the given message id is deleted.\n"
+              "If --quiet is specified, then there is no message displayed on\n"
+              "success.\n"),
+  OWLCMD_ALIAS("delx", "delete-and-expunge"),
+#endif
 
   OWLCMD_ARGS("undelete", owl_command_undelete, OWL_CTX_INTERACTIVE,
 	      "unmark a message for deletion",
@@ -1561,6 +1568,7 @@ char *owl_command_set(int argc, const char *const *argv, const char *buff)
   const char *var, *val;
   int  silent=0;
   int requirebool=0;
+  owl_variable *v;
 
   if (argc == 1) {
     owl_function_printallvars();
@@ -1583,12 +1591,21 @@ char *owl_command_set(int argc, const char *const *argv, const char *buff)
     owl_function_makemsg("Wrong number of arguments for set command");
     return NULL;
   }
-  owl_variable_set_fromstring(owl_global_get_vardict(&g), var, val, !silent, requirebool);
+
+  v = owl_variable_get_var(owl_global_get_vardict(&g), var);
+  if (v == NULL) {
+    if (!silent) owl_function_error("Unknown variable '%s'", var);
+  } else if (requirebool && owl_variable_get_type(v) != OWL_VARIABLE_BOOL) {
+    if (!silent) owl_function_error("Variable '%s' is not a boolean", var);
+  } else {
+    owl_variable_set_fromstring(v, val, !silent);
+  }
   return NULL;
 }
 
 char *owl_command_unset(int argc, const char *const *argv, const char *buff)
 {
+  owl_variable *v;
   const char *var, *val;
   int  silent=0;
 
@@ -1603,7 +1620,15 @@ char *owl_command_unset(int argc, const char *const *argv, const char *buff)
     owl_function_makemsg("Wrong number of arguments for unset command");
     return NULL;
   }
-  owl_variable_set_fromstring(owl_global_get_vardict(&g), var, val, !silent, 1);
+
+  v = owl_variable_get_var(owl_global_get_vardict(&g), var);
+  if (v == NULL) {
+    if (!silent) owl_function_error("Unknown variable '%s'", var);
+  } else if (owl_variable_get_type(v) != OWL_VARIABLE_BOOL) {
+    if (!silent) owl_function_error("Variable '%s' is not a boolean", var);
+  } else {
+    owl_variable_set_fromstring(v, val, !silent);
+  }
   return NULL;
 }
 
@@ -1611,6 +1636,7 @@ char *owl_command_print(int argc, const char *const *argv, const char *buff)
 {
   const char *var;
   char *value;
+  const owl_variable *v;
 
   if (argc==1) {
     owl_function_printallvars();
@@ -1622,9 +1648,13 @@ char *owl_command_print(int argc, const char *const *argv, const char *buff)
 
   var=argv[1];
     
-  value = owl_variable_get_tostring(owl_global_get_vardict(&g), var);
-  if (value) {
-    owl_function_makemsg("%s = '%s'", var, value);
+  v = owl_variable_get_var(owl_global_get_vardict(&g), var);
+  if (v) {
+    value = owl_variable_get_tostring(v);
+    if (value == NULL)
+      owl_function_makemsg("%s = <null>", var);
+    else
+      owl_function_makemsg("%s = '%s'", var, value);
     g_free(value);
   } else {
     owl_function_makemsg("Unknown variable '%s'.", var);
@@ -2119,8 +2149,9 @@ char *owl_command_view(int argc, const char *const *argv, const char *buff)
     for (i=2; i<argc; i++) {
       myargv[i]=argv[i];
     }
-    owl_function_create_filter(argc, myargv);
-    owl_function_change_currentview_filter("owl-dynamic");
+    if (owl_function_create_filter(argc, myargv)) {
+      owl_function_change_currentview_filter("owl-dynamic");
+    }
     g_free(myargv);
     return NULL;
   }
@@ -2313,6 +2344,35 @@ char *owl_command_delete(int argc, const char *const *argv, const char *buff)
   return NULL;
 }
 
+#if 0
+char *owl_command_delete_and_expunge(int argc, const char *const *argv, const char *buff)
+{
+  bool exclaim_success = true;
+
+  if (argc > 1 && (!strcmp(argv[1], "-q") || !strcmp(argv[1], "--quiet"))) {
+    exclaim_success = false;
+    argc--;
+    argv++;
+  } else if (!strcmp(argv[argc - 1], "-q") || !strcmp(argv[argc - 1], "--quiet")) {
+    exclaim_success = false;
+    argc--;
+  }
+
+  if (argc == 1) {
+    owl_function_delete_and_expunge_cur(exclaim_success);
+    return NULL;
+  }
+
+  if (argc == 3 && (!strcmp(argv[1], "-id") || !strcmp(argv[1], "--id"))) {
+    owl_function_delete_and_expunge_by_id(atoi(argv[2]), exclaim_success);
+    return NULL;
+  }
+
+  owl_function_makemsg("Unknown arguments to delete-and-expunge command");
+  return NULL;
+}
+#endif
+
 char *owl_command_undelete(int argc, const char *const *argv, const char *buff)
 {
   int move_after = 1;
@@ -2457,7 +2517,7 @@ void owl_command_punt_unpunt(int argc, const char *const * argv, const char *buf
     owl_function_show_zpunts();
   } else if(argc == 2) {
     /* Handle :unpunt <number> */
-    if(unpunt && (i=atoi(argv[1])) !=0) {
+    if (unpunt && (i = atoi(argv[1])) > 0) {
       i--;      /* Accept 1-based indexing */
       if (i < fl->len) {
         owl_filter_delete(g_ptr_array_remove_index(fl, i));
@@ -2487,13 +2547,16 @@ char *owl_command_getview(int argc, const char *const *argv, const char *buff)
   return NULL;
 }
 
-char *owl_command_getvar(int argc, const char *const *argv, const char *buff)
+CALLER_OWN char *owl_command_getvar(int argc, const char *const *argv, const char *buff)
 {
+  const owl_variable *v;
   if (argc != 2) {
     owl_function_makemsg("Wrong number of arguments for %s", argv[0]);
     return NULL;
   }
-  return owl_variable_get_tostring(owl_global_get_vardict(&g), argv[1]);
+  v = owl_variable_get_var(owl_global_get_vardict(&g), argv[1]);
+  if (v == NULL) return NULL;
+  return owl_variable_get_tostring(v);
 }
 
 char *owl_command_getfilter(int argc, const char *const *argv, const char *buf)

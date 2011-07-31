@@ -64,6 +64,8 @@ sub __format_attributes {
     for my $k (@keys) {
         my $v = $self->{$k};
         unless($skip{$k}) {
+            # FIXME: Restore version without length limit. Indent
+            # lines after the first, etc.
             $text .= sprintf("  %-15.15s: %-35.35s\n", $k, $v);
         }
     }
@@ -146,6 +148,11 @@ sub personal_context { return ""; }
 # extra short version, for use where space is especially tight
 # (eg, the oneline style)
 sub short_personal_context { return ""; }
+
+sub delete_and_expunge {
+    my ($m) = @_;
+    &BarnOwl::command("delete-and-expunge --quiet --id " . $m->id);
+}
 
 sub delete {
     my $self = shift;

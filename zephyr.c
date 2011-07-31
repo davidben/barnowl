@@ -1,10 +1,6 @@
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
-#include <string.h>
 #include "owl.h"
+#include <stdio.h>
+#include <sys/stat.h>
 
 #ifdef HAVE_LIBZEPHYR
 static GSource *owl_zephyr_event_source_new(int fd);
@@ -37,7 +33,7 @@ static char *owl_zephyr_dotfile(const char *name, const char *input)
   if (input != NULL)
     return g_strdup(input);
   else
-    return g_strdup_printf("%s/%s", owl_global_get_homedir(&g), name);
+    return g_build_filename(owl_global_get_homedir(&g), name, NULL);
 }
 
 #ifdef HAVE_LIBZEPHYR
@@ -1230,7 +1226,15 @@ int owl_zephyr_set_exposure(const char *exposure)
   if (exposure == NULL)
     return -1;
   ret = ZSetLocation(zstr(exposure));
-  if (ret != ZERR_NONE) {
+  if (ret != ZERR_NONE
+#ifdef ZCONST
+      /* Before zephyr 3.0, ZSetLocation had a bug where, if you were subscribed
+       * to your own logins, it could wait for the wrong notice and return
+       * ZERR_INTERNAL when found neither SERVACK nor SERVNAK. Suppress it when
+       * building against the old ABI. */
+      && ret != ZERR_INTERNAL
+#endif
+     ) {
     owl_function_error("Unable to set exposure level: %s.", error_message(ret));
     return -1;
   }

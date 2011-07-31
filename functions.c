@@ -1,17 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <errno.h>
-#include <signal.h>
 #include "owl.h"
 #include "filterproc.h"
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 CALLER_OWN char *owl_function_command(const char *cmdbuff)
 {
@@ -139,8 +130,8 @@ void owl_function_show_license(void)
     "     distribution.\n"
     "\n"
     "   * Redistributions in any form must be accompanied by information on\n"
-    "     how to obtain complete source code for the Owl software and any\n"
-    "     accompanying software that uses the Owl software. The source code\n"
+    "     how to obtain complete source code for the BarnOwl software and any\n"
+    "     accompanying software that uses the BarnOwl software. The source code\n"
     "     must either be included in the distribution or be available for no\n"
     "     more than the cost of distribution plus a nominal fee, and must be\n"
     "     freely redistributable under reasonable conditions. For an\n"
@@ -389,7 +380,7 @@ void owl_function_zcrypt(owl_zwrite *z, const char *msg)
   }
   old_msg = g_strdup(owl_zwrite_get_message(z));
 
-  zcrypt = g_strdup_printf("%s/zcrypt", owl_get_bindir());
+  zcrypt = g_build_filename(owl_get_bindir(), "zcrypt", NULL);
   argv[0] = "zcrypt";
   argv[1] = "-E";
   argv[2] = "-c"; argv[3] = owl_zwrite_get_class(z);
@@ -631,6 +622,38 @@ void owl_function_prevmsg_notdeleted(void)
 {
   owl_function_prevmsg_full(NULL, 1, 1);
 }
+
+#if 0
+void owl_function_delete_and_expunge_message(int n)
+{
+  owl_messagelist *ml = owl_global_get_msglist(&g);
+  owl_view *v = owl_global_get_current_view(&g);
+  int lastmsgid = owl_function_get_curmsg_id(v);
+
+  /* delete and expunge the message */
+  owl_messagelist_delete_and_expunge_element(ml, n);
+
+  owl_function_redisplay_to_nearest(lastmsgid, v);
+}
+
+void owl_function_delete_and_expunge_cur(bool exclaim_success)
+{
+  int curmsg;
+  const owl_view *v = owl_global_get_current_view(&g);
+
+  /* bail if there's no current message */
+  if (owl_view_get_size(v) < 1) {
+    owl_function_error("No current message to delete");
+    return;
+  }
+
+  /* delete the current message */
+  curmsg = owl_global_get_curmsg(&g);
+  owl_function_delete_and_expunge_message(curmsg);
+  if (exclaim_success)
+    owl_function_makemsg("Message deleted and expunged");
+}
+#endif
 
 /* if move_after is 1, moves after the delete */
 void owl_function_deletecur(int move_after)
@@ -920,7 +943,7 @@ void owl_function_quit(void)
     owl_aim_logout();
   }
 
-  owl_function_debugmsg("Quitting Owl");
+  owl_function_debugmsg("Quitting BarnOwl");
   owl_select_quit_loop();
 }
 
@@ -1156,6 +1179,7 @@ void owl_function_resize(void)
 
 void G_GNUC_PRINTF(1, 2) owl_function_debugmsg(const char *fmt, ...)
 {
+  char *tmpbuff;
   FILE *file;
   time_t now;
   va_list ap;
@@ -1170,8 +1194,10 @@ void G_GNUC_PRINTF(1, 2) owl_function_debugmsg(const char *fmt, ...)
 
   now = time(NULL);
 
-  fprintf(file, "[%d -  %.24s - %lds]: ",
-	  (int) getpid(), ctime(&now), now - owl_global_get_starttime(&g));
+  tmpbuff = owl_util_time_to_timestr(localtime(&now));
+  fprintf(file, "[%d -  %s - %lds]: ",
+          (int) getpid(), tmpbuff, now - owl_global_get_starttime(&g));
+  g_free(tmpbuff);
   vfprintf(file, fmt, ap);
   putc('\n', file);
   fflush(file);
@@ -1358,12 +1384,12 @@ void owl_function_info(void)
     owl_fmtext_appendf_normal(&fm, "  Opcode    : %s\n", owl_message_get_opcode(m));
 #ifdef HAVE_LIBZEPHYR
     if (owl_message_is_direction_in(m)) {
-      char *tmpbuff;
-      int i, j, fields, len;
+      char *tmpbuff, *tmpbuff2;
+      int i, fields;
       /* XXX TODO Display this information again*/
       /*
-      n=owl_message_get_notice(m);
-
+      n = owl_message_get_notice(m);
+      if (n != NULL) {
       if (!owl_message_is_pseudo(m)) {
 	owl_fmtext_append_normal(&fm, "  Kind      : ");
 	if (n->z_kind==UNSAFE) {
@@ -1412,22 +1438,21 @@ void owl_function_info(void)
 	fields=owl_message_get_num_fields(m);
 	for (i = 0; i < fields; i++) {
 	  tmpbuff = owl_message_get_field(m, i + 1);
-
-	  g_strdelimit(tmpbuff, "\n", '~');
-	  g_strdelimit(tmpbuff, "\r", '!');
-
-	  owl_fmtext_appendf_normal(&fm, "  Field %i   : %s\n", i + 1, tmpbuff);
-	  g_free(tmpbuff);
+          tmpbuff2 = owl_text_indent(tmpbuff, 14, false);
+          owl_fmtext_appendf_normal(&fm, "  Field %i   : %s\n", i + 1, tmpbuff2);
+          g_free(tmpbuff2);
+          g_free(tmpbuff);
 	}
-	/* owl_fmtext_append_normal(&fm, "  Default Fm:");
-           owl_fmtext_append_normal(&fm, n->z_default_format); */
+        /* tmpbuff = owl_text_indent(n->z_default_format, 14, false);
+           owl_fmtext_appendf_normal(&fm, "  Default Fm: %s\n", tmpbuff);
+           g_free(tmpbuff); */
       }
 
     }
 #endif
   }
 
-  owl_fmtext_append_bold(&fm, "\nOwl Message Attributes:\n");
+  owl_fmtext_append_bold(&fm, "\nBarnOwl Message Attributes:\n");
   owl_message_attributes_tofmtext(m, &attrfm);
   owl_fmtext_append_fmtext(&fm, &attrfm);
   
@@ -1568,6 +1593,7 @@ void owl_function_getsubs(void)
 
 void owl_function_printallvars(void)
 {
+  const owl_variable *v;
   const char *name;
   char *var;
   GPtrArray *varnames;
@@ -1581,10 +1607,13 @@ void owl_function_printallvars(void)
     name = varnames->pdata[i];
     if (name && name[0]!='_') {
       g_string_append_printf(str, "\n%-20s = ", name);
-      var = owl_variable_get_tostring(owl_global_get_vardict(&g), name);
+      v = owl_variable_get_var(owl_global_get_vardict(&g), name);
+      var = owl_variable_get_tostring(v);
       if (var) {
-	g_string_append(str, var);
-	g_free(var);
+        g_string_append(str, var);
+        g_free(var);
+      } else {
+        g_string_append(str, "<null>");
       }
     }
   }
@@ -1597,6 +1626,7 @@ void owl_function_printallvars(void)
 
 void owl_function_show_variables(void)
 {
+  const owl_variable *v;
   GPtrArray *varnames;
   owl_fmtext fm;  
   int i;
@@ -1609,7 +1639,8 @@ void owl_function_show_variables(void)
   for (i = 0; i < varnames->len; i++) {
     varname = varnames->pdata[i];
     if (varname && varname[0]!='_') {
-      owl_variable_describe(owl_global_get_vardict(&g), varname, &fm);
+      v = owl_variable_get_var(owl_global_get_vardict(&g), varname);
+      owl_variable_describe(v, &fm);
     }
   }
   owl_ptr_array_free(varnames, g_free);
@@ -1619,13 +1650,33 @@ void owl_function_show_variables(void)
 
 void owl_function_show_variable(const char *name)
 {
+  const owl_variable *v;
   owl_fmtext fm;  
 
   owl_fmtext_init_null(&fm);
-  owl_variable_get_help(owl_global_get_vardict(&g), name, &fm);
+  v = owl_variable_get_var(owl_global_get_vardict(&g), name);
+  if (v)
+    owl_variable_get_help(v, &fm);
+  else
+    owl_fmtext_append_normal(&fm, "No such variable...\n");
   owl_function_popless_fmtext(&fm);
   owl_fmtext_cleanup(&fm);
 }
+
+#if 0
+void owl_function_delete_and_expunge_by_id(int id, bool exclaim_success)
+{
+  const owl_messagelist *ml = owl_global_get_msglist(&g);
+  int msg = owl_messagelist_get_index_by_id(ml, id);
+  if (msg < 0) {
+    owl_function_error("No message with id %d: unable to delete", id);
+  } else {
+    owl_function_delete_and_expunge_message(msg);
+    if (exclaim_success)
+      owl_function_makemsg("Message deleted and expunged");
+  }
+}
+#endif
 
 /* note: this applies to global message list, not to view.
  * If flag is 1, deletes.  If flag is 0, undeletes. */
@@ -1685,6 +1736,7 @@ void owl_function_delete_automsgs(void)
 
 void owl_function_status(void)
 {
+  char *tmpbuff;
   char buff[MAXPATHLEN+1];
   time_t start;
   int up, days, hours, minutes;
@@ -1712,7 +1764,9 @@ void owl_function_status(void)
   }
   owl_fmtext_append_normal(&fm, "\n");
 
-  owl_fmtext_appendf_normal(&fm, "  Startup Time: %s", ctime(&start));
+  tmpbuff = owl_util_time_to_timestr(localtime(&start));
+  owl_fmtext_appendf_normal(&fm, "  Startup Time: %s\n", tmpbuff);
+  g_free(tmpbuff);
 
   up=owl_global_get_runtime(&g);
   days=up/86400;
@@ -2054,9 +2108,9 @@ void owl_function_change_currentview_filter(const char *filtname)
 }
 
 /* Create a new filter, or replace an existing one
- * with a new definition.
+ * with a new definition. Returns true on success.
  */
-void owl_function_create_filter(int argc, const char *const *argv)
+bool owl_function_create_filter(int argc, const char *const *argv)
 {
   owl_filter *f;
   const owl_view *v;
@@ -2064,7 +2118,7 @@ void owl_function_create_filter(int argc, const char *const *argv)
 
   if (argc < 2) {
     owl_function_error("Wrong number of arguments to filter command");
-    return;
+    return false;
   }
 
   owl_function_debugmsg("owl_function_create_filter: starting to create filter named %s", argv[1]);
@@ -2074,7 +2128,7 @@ void owl_function_create_filter(int argc, const char *const *argv)
   /* don't touch the all filter */
   if (!strcmp(argv[1], "all")) {
     owl_function_error("You may not change the 'all' filter.");
-    return;
+    return false;
   }
 
   /* deal with the case of trying change the filter color */
@@ -2082,36 +2136,36 @@ void owl_function_create_filter(int argc, const char *const *argv)
     f=owl_global_get_filter(&g, argv[1]);
     if (!f) {
       owl_function_error("The filter '%s' does not exist.", argv[1]);
-      return;
+      return false;
     }
     if (owl_util_string_to_color(argv[3])==OWL_COLOR_INVALID) {
       owl_function_error("The color '%s' is not available.", argv[3]);
-      return;
+      return false;
     }
     owl_filter_set_fgcolor(f, owl_util_string_to_color(argv[3]));
     owl_mainwin_redisplay(owl_global_get_mainwin(&g));
-    return;
+    return false;
   }
   if (argc==4 && !strcmp(argv[2], "-b")) {
     f=owl_global_get_filter(&g, argv[1]);
     if (!f) {
       owl_function_error("The filter '%s' does not exist.", argv[1]);
-      return;
+      return false;
     }
     if (owl_util_string_to_color(argv[3])==OWL_COLOR_INVALID) {
       owl_function_error("The color '%s' is not available.", argv[3]);
-      return;
+      return false;
     }
     owl_filter_set_bgcolor(f, owl_util_string_to_color(argv[3]));
     owl_mainwin_redisplay(owl_global_get_mainwin(&g));
-    return;
+    return true;
   }
 
   /* create the filter and check for errors */
   f = owl_filter_new(argv[1], argc-2, argv+2);
   if (f == NULL) {
     owl_function_error("Invalid filter");
-    return;
+    return false;
   }
 
   /* if the named filter is in use by the current view, remember it */
@@ -2134,6 +2188,7 @@ void owl_function_create_filter(int argc, const char *const *argv)
     owl_function_change_currentview_filter(argv[1]);
   }
   owl_mainwin_redisplay(owl_global_get_mainwin(&g));
+  return true;
 }
 
 /* If 'filtername' does not start with 'not-' create a filter named
@@ -2385,7 +2440,7 @@ CALLER_OWN char *owl_function_aimuserfilt(const char *user)
 
   /* if it already exists then go with it.  This lets users override */
   if (owl_global_get_filter(&g, filtname)) {
-    return(g_strdup(filtname));
+    return filtname;
   }
 
   /* create the new-internal filter */
@@ -3171,7 +3226,7 @@ void owl_function_do_newmsgproc(void)
                               owl_global_get_newmsgproc(&g));
       } else if (myargc > 0) {
         /* Spawn the child. */
-        pid_t pid;
+        GPid pid;
         GError *error = NULL;
         owl_function_debugmsg("About to exec \"%s\" with %d arguments", argv[0], myargc);
         if (g_spawn_async(NULL, argv, NULL,
@@ -3354,9 +3409,8 @@ void owl_function_log_err(const char *string)
   time_t now;
   char *buff;
 
-  now=time(NULL);
-  date=g_strdup(ctime(&now));
-  date[strlen(date)-1]='\0';
+  now = time(NULL);
+  date = owl_util_time_to_timestr(localtime(&now));
 
   buff = g_strdup_printf("%s %s", date, string);
 
@@ -3419,17 +3473,18 @@ void owl_function_zephyr_buddy_check(int notify)
   *zaldlist = NULL;
 
   anyone = owl_zephyr_get_anyone_list(NULL);
-  for (i = 0; i < anyone->len; i++) {
-    user = anyone->pdata[i];
-    zald = g_new(ZAsyncLocateData_t, 1);
-    if (ZRequestLocations(zstr(user), zald, UNACKED, ZAUTH) == ZERR_NONE) {
-      *zaldlist = g_list_append(*zaldlist, zald);
-    } else {
-      g_free(zald);
+  if (anyone != NULL) {
+    for (i = 0; i < anyone->len; i++) {
+      user = anyone->pdata[i];
+      zald = g_new(ZAsyncLocateData_t, 1);
+      if (ZRequestLocations(zstr(user), zald, UNACKED, ZAUTH) == ZERR_NONE) {
+        *zaldlist = g_list_append(*zaldlist, zald);
+      } else {
+        g_free(zald);
+      }
     }
+    owl_ptr_array_free(anyone, g_free);
   }
-
-  owl_ptr_array_free(anyone, g_free);
 #endif
 }
 

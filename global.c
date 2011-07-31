@@ -1,12 +1,6 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <netdb.h>
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <time.h>
 #include "owl.h"
+#include <stdio.h>
+#include <sys/ioctl.h>
 
 static void _owl_global_init_windows(owl_global *g);
 
@@ -49,7 +43,6 @@ void owl_global_init(owl_global *g) {
   g->curmsg_vert_offset=0;
   g->resizepending=0;
   g->direction=OWL_DIRECTION_DOWNWARDS;
-  g->zaway=0;
   owl_fmtext_init_colorpair_mgr(&(g->cpmgr));
   g->debug=OWL_DEBUG;
   owl_regex_init(&g->search_re);
@@ -74,7 +67,7 @@ void owl_global_init(owl_global *g) {
 
   g->confdir = NULL;
   g->startupfile = NULL;
-  cd = g_strdup_printf("%s/%s", g->homedir, OWL_CONFIG_DIR);
+  cd = g_build_filename(g->homedir, OWL_CONFIG_DIR, NULL);
   owl_global_set_confdir(g, cd);
   g_free(cd);
 
@@ -367,7 +360,7 @@ void owl_global_set_confdir(owl_global *g, const char *cd) {
   g_free(g->confdir);
   g->confdir = g_strdup(cd);
   g_free(g->startupfile);
-  g->startupfile = g_strdup_printf("%s/startup", cd);
+  g->startupfile = g_build_filename(cd, "startup", NULL);
 }
 
 const char *owl_global_get_startupfile(const owl_global *g) {

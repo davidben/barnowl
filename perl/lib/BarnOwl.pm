@@ -105,7 +105,8 @@ separated by newlines.
 
 Enqueue a message in the BarnOwl message list, logging it and
 processing it appropriately. C<MESSAGE> should be an instance of
-BarnOwl::Message or a subclass.
+BarnOwl::Message or a subclass.  Returns the queued message.  This
+is useful for, e.g., deleting a message from the message list.
 
 =head2 admin_message HEADER BODY
 
@@ -571,8 +572,9 @@ Compute the default zephyr signature.
 sub default_zephyr_signature
 {
   my $zsig = getvar('zsig');
-  if (!$zsig) {
-      if (my $zsigproc = getvar('zsigproc')) {
+  if (!defined($zsig) || $zsig eq '') {
+      my $zsigproc = getvar('zsigproc');
+      if (defined($zsigproc) && $zsigproc ne '') {
 	  $zsig = `$zsigproc`;
       } elsif (!defined($zsig = get_zephyr_variable('zwrite-signature'))) {
 	  $zsig = ((getpwuid($<))[6]);

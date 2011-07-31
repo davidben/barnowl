@@ -1,14 +1,7 @@
 #include "owl.h"
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <ctype.h>
 #include <pwd.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <assert.h>
 #include <stdarg.h>
-#include <glib.h>
 #include <glib/gstdio.h>
 #include <glib-object.h>
 
@@ -31,70 +24,74 @@ const char *skiptokens(const char *buff, int n) {
   return buff;
 }
 
+CALLER_OWN char *owl_util_homedir_for_user(const char *name)
+{
+  int err;
+  struct passwd pw_buf;
+  struct passwd *pw;
+
+  char *pw_strbuf, *ret;
+  long pw_strbuf_len = sysconf(_SC_GETPW_R_SIZE_MAX);
+  if (pw_strbuf_len < 0) {
+    /* If we really hate ourselves, we can be fancy and loop until we stop
+     * getting ERANGE. For now just pick a random number. */
+    owl_function_error("owl_util_homedir_for_user: Could not get _SC_GETPW_R_SIZE_MAX");
+    pw_strbuf_len = 16384;
+  }
+  pw_strbuf = g_new0(char, pw_strbuf_len);
+  err = getpwnam_r(name, &pw_buf, pw_strbuf, pw_strbuf_len, &pw);
+  if (err) {
+    owl_function_error("getpwuid_r: %s", strerror(err));
+    /* Fall through; pw will be NULL. */
+  }
+  ret = pw ? g_strdup(pw->pw_dir) : NULL;
+  g_free(pw_strbuf);
+  return ret;
+}
+
 /* Return a "nice" version of the path.  Tilde expansion is done, and
  * duplicate slashes are removed.  Caller must free the return.
  */
 CALLER_OWN char *owl_util_makepath(const char *in)
 {
-  int i, j, x;
-  char *out, user[MAXPATHLEN];
-  struct passwd *pw;
+  char *out;
+  int i, j;
+  if (in[0] == '~') {
+    /* Attempt tilde-expansion of the first component. Get the
+       tilde-prefix, which goes up to the next slash. */
+    const char *end = strchr(in + 1, '/');
+    if (end == NULL)
+      end = in + strlen(in);
 
-  out=g_new(char, MAXPATHLEN+1);
-  out[0]='\0';
-  j=strlen(in);
-  x=0;
-  for (i=0; i<j; i++) {
-    if (in[i]=='~') {
-      if ( (i==(j-1)) ||          /* last character */
-	   (in[i+1]=='/') ) {     /* ~/ */
-	/* use my homedir */
-	pw=getpwuid(getuid());
-	if (!pw) {
-	  out[x]=in[i];
-	} else {
-	  out[x]='\0';
-	  strcat(out, pw->pw_dir);
-	  x+=strlen(pw->pw_dir);
-	}
-      } else {
-	/* another user homedir */
-	int a, b;
-	b=0;
-	for (a=i+1; i<j; a++) {
-	  if (in[a]==' ' || in[a]=='/') {
-	    break;
-	  } else {
-	    user[b]=in[a];
-	    i++;
-	    b++;
-	  }
-	}
-	user[b]='\0';
-	pw=getpwnam(user);
-	if (!pw) {
-	  out[x]=in[i];
-	} else {
-	  out[x]='\0';
-	  strcat(out, pw->pw_dir);
-	  x+=strlen(pw->pw_dir);
-	}
-      }
-    } else if (in[i]=='/') {
-      /* check for a double / */
-      if (i<(j-1) && (in[i+1]=='/')) {
-	/* do nothing */
-      } else {
-	out[x]=in[i];
-	x++;
-      }
+    /* Patch together a new path. Replace the ~ and tilde-prefix with
+       the homedir, if available. */
+    if (end == in + 1) {
+      /* My home directory. Use the one in owl_global for consistency with
+       * owl_zephyr_dotfile. */
+      out = g_strconcat(owl_global_get_homedir(&g), end, NULL);
     } else {
-      out[x]=in[i];
-      x++;
+      /* Someone else's home directory. */
+      char *user = g_strndup(in + 1, end - (in + 1));
+      char *home = owl_util_homedir_for_user(user);
+      if (home) {
+        out = g_strconcat(home, end, NULL);
+      } else {
+        out = g_strdup(in);
+      }
+      g_free(home);
+      g_free(user);
     }
+  } else {
+    out = g_strdup(in);
   }
-  out[x]='\0';
-  return(out);
+
+  /* And a quick pass to remove duplicate slashes. */
+  for (i = j = 0; out[i] != '\0'; i++) {
+    if (out[i] != '/' || i == 0 || out[i-1] != '/')
+      out[j++] = out[i];
+  }
+  out[j] = '\0';
+  return out;
 }
 
 void owl_ptr_array_free(GPtrArray *array, GDestroyNotify element_free_func)
@@ -291,6 +288,19 @@ CALLER_OWN char *owl_util_minutes_to_timestr(int in)
   return(out);
 }
 
+CALLER_OWN char *owl_util_time_to_timestr(const struct tm *time)
+{
+  /* 32 chosen for first attempt because timestr will end up being
+   * something like "Www Mmm dd hh:mm:ss AM yyyy UTC\0" */ 
+  size_t timestr_size = 16;
+  char *timestr = NULL;
+  do {
+    timestr_size *= 2;
+    timestr = g_renew(char, timestr, timestr_size);
+  } while (strftime(timestr, timestr_size, "%c", time) == 0);
+  return timestr;
+}
+
 /* These are in order of their value in owl.h */
 static const struct {
   int number;
@@ -408,10 +418,7 @@ CALLER_OWN gchar *owl_util_recursive_resolve_link(const char *filename)
      * is racy. Whatever. */
     if (!g_path_is_absolute(link_path)) {
       char *last_dir = g_path_get_dirname(last_path);
-      char *tmp = g_build_path(G_DIR_SEPARATOR_S,
-			       last_dir,
-			       link_path,
-			       NULL);
+      char *tmp = g_build_filename(last_dir, link_path, NULL);
       g_free(last_dir);
       g_free(link_path);
       link_path = tmp;

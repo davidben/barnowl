@@ -1,11 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <errno.h>
 #define OWL_PERL
 #include "owl.h"
+#include <stdio.h>
 
 extern XS(boot_BarnOwl);
 extern XS(boot_DynaLoader);
@@ -251,7 +246,7 @@ CALLER_OWN char *owl_perlconfig_initperl(const char *file, int *Pargc, char ***P
 
   /* Add the system lib path to @INC */
   inc = get_av("INC", 0);
-  path = g_strdup_printf("%s/lib", owl_get_datadir());
+  path = g_build_filename(owl_get_datadir(), "lib", NULL);
   av_unshift(inc, 1);
   av_store(inc, 0, owl_new_sv(path));
   g_free(path);

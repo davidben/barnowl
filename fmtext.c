@@ -1,6 +1,4 @@
 #include "owl.h"
-#include <stdlib.h>
-#include <string.h>
 
 /* initialize an fmtext with no data */
 void owl_fmtext_init_null(owl_fmtext *f)
@@ -185,9 +183,14 @@ static void _owl_fmtext_wattrset(WINDOW *w, int attrs)
 
 static void _owl_fmtext_wcolor_set(WINDOW *w, short pair)
 {
+  cchar_t background;
+  wchar_t blank[2] = { ' ', 0 };
   if (has_colors()) {
-      wcolor_set(w,pair,NULL);
-      wbkgdset(w, COLOR_PAIR(pair));
+      wcolor_set(w, pair, NULL);
+      /* Set the background with wbkgrndset so that we can handle color-pairs
+       * past 256 on ncurses ABI 6 and later. */
+      setcchar(&background, blank, 0, pair, NULL);
+      wbkgrndset(w, &background);
   }
 }
 
@@ -685,6 +688,7 @@ void owl_fmtext_append_ztext(owl_fmtext *f, const char *text)
         /* if we didn't understand it, we'll print it.  This is different from zwgc
          * but zwgc seems to be smarter about some screw cases than I am
          */
+        g_free(buff);
         owl_fmtext_append_attr(f, "@", curattrs, curcolor, OWL_COLOR_DEFAULT);
         txtptr++;
         continue;

@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #define OWL_PERL
 #include "owl.h"
 

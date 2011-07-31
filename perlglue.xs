@@ -1,9 +1,4 @@
 /* -*- mode: c; indent-tabs-mode: t; c-basic-offset: 8 -*- */
-#ifdef HAVE_LIBZEPHYR
-#include <zephyr/zephyr.h>
-#endif
-#include <EXTERN.h>
-
 #define OWL_PERL
 #include "owl.h"
 
@@ -147,7 +142,7 @@ zephyr_getsubs()
     CLEANUP:
 		g_free(rv);
 
-void
+SV *
 queue_message(msg)
 	SV *msg
 	PREINIT:
@@ -162,7 +157,11 @@ queue_message(msg)
 		owl_message_lock(m);
 
 		owl_global_messagequeue_addmsg(&g, m);
+
+		RETVAL = owl_perlconfig_message2hashref(m);
 	}
+	OUTPUT:
+		RETVAL
 
 void
 admin_message(header, body)

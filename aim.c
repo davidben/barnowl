@@ -1,6 +1,3 @@
-#include <stdio.h>
-#include <stdio.h>
-#include <sys/stat.h>
 #include "owl.h"
 
 /**********************************************************************/
@@ -1063,34 +1060,11 @@ static int faimtest_parse_incoming_im_chan1(aim_session_t *sess, aim_conn_t *con
   g_free(stripmsg);
   g_free(wrapmsg);
   g_free(nz_screenname);
-
-  return(1);
-
-  owl_function_debugmsg("faimtest_parse_incoming_im_chan1: icbm: message: %s\n", realmsg);
-  
-  if (args->icbmflags & AIM_IMFLAGS_MULTIPART) {
-    aim_mpmsg_section_t *sec;
-    int z;
-
-    owl_function_debugmsg("faimtest_parse_incoming_im_chan1: icbm: multipart: this message has %d parts\n", args->mpmsg.numparts);
-    
-    for (sec = args->mpmsg.parts, z = 0; sec; sec = sec->next, z++) {
-      if ((sec->charset == 0x0000) || (sec->charset == 0x0003) || (sec->charset == 0xffff)) {
-	owl_function_debugmsg("faimtest_parse_incoming_im_chan1: icbm: multipart:   part %d: charset 0x%04x, subset 0x%04x, msg = %s\n", z, sec->charset, sec->charsubset, sec->data);
-      } else {
-	owl_function_debugmsg("faimtest_parse_incoming_im_chan1: icbm: multipart:   part %d: charset 0x%04x, subset 0x%04x, binary or UNICODE data\n", z, sec->charset, sec->charsubset);
-      }
-    }
-  }
-  
-  if (args->icbmflags & AIM_IMFLAGS_HASICON) {
-    /* aim_send_im(sess, userinfo->sn, AIM_IMFLAGS_BUDDYREQ, "You have an icon"); */
-    owl_function_debugmsg("faimtest_parse_incoming_im_chan1: icbm: their icon: iconstamp = %ld, iconlen = 0x%08x, iconsum = 0x%04x\n", args->iconstamp, args->iconlen, args->iconsum);
-  }
-
   g_free(realmsg);
 
   return(1);
+
+  /* TODO: Multipart? See history from before 1.8 release. */
 }
 
 /*
@@ -1811,14 +1785,15 @@ static void truncate_pollfd_list(owl_aim_event_source *event_source, int len)
 {
   GPollFD *fd;
   int i;
-  if (len < event_source->fds->len)
+  if (len < event_source->fds->len) {
     owl_function_debugmsg("Truncating AIM PollFDs to %d, was %d", len, event_source->fds->len);
-  for (i = len; i < event_source->fds->len; i++) {
-    fd = event_source->fds->pdata[i];
-    g_source_remove_poll(&event_source->source, fd);
-    g_free(fd);
+    for (i = len; i < event_source->fds->len; i++) {
+      fd = event_source->fds->pdata[i];
+      g_source_remove_poll(&event_source->source, fd);
+      g_free(fd);
+    }
+    g_ptr_array_remove_range(event_source->fds, len, event_source->fds->len - len);
   }
-  g_ptr_array_remove_range(event_source->fds, len, event_source->fds->len - len);
 }
 
 static gboolean owl_aim_event_source_prepare(GSource *source, int *timeout)
@@ -1850,10 +1825,9 @@ static gboolean owl_aim_event_source_prepare(GSource *source, int *timeout)
       }
       fd = event_source->fds->pdata[i];
       fd->fd = cur->fd;
-      fd->events |= G_IO_IN | G_IO_HUP | G_IO_ERR;
+      fd->events = G_IO_IN | G_IO_HUP | G_IO_ERR;
       if (cur->status & AIM_CONN_STATUS_INPROGRESS) {
-        /* Yes, we're checking writable sockets here. Without it, AIM
-           login is really slow. */
+        /* AIM login requires checking writable sockets. See aim_select. */
 	fd->events |= G_IO_OUT;
       }
       i++;
@@ -1889,8 +1863,11 @@ static gboolean owl_aim_event_source_dispatch(GSource *source, GSourceFunc callb
 static void owl_aim_event_source_finalize(GSource *source)
 {
   owl_aim_event_source *event_source = (owl_aim_event_source*)source;
-  truncate_pollfd_list(event_source, 0);
-  g_ptr_array_free(event_source->fds, TRUE);
+  /* Don't remove the GPollFDs. We are being finalized, so they'll be removed
+   * for us. Moreover, glib will fire asserts if g_source_remove_poll is called
+   * on a source which has been destroyed (which occurs when g_source_remove is
+   * called on it). */
+  owl_ptr_array_free(event_source->fds, g_free);
 }
 
 static GSourceFuncs aim_event_funcs = {

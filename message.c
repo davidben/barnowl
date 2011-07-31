@@ -1,16 +1,8 @@
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <time.h>
 #define OWL_PERL
 #include "owl.h"
 #include "filterproc.h"
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
 static owl_fmtext_cache fmtext_cache[OWL_FMTEXT_CACHE_SIZE];
 static owl_fmtext_cache * fmtext_cache_next = fmtext_cache;
@@ -288,9 +280,7 @@ void owl_message_set_time(owl_message *m, time_t tm)
   timestr = g_strdup_printf("%d", (unsigned int)tm);
   owl_message_set_attribute(m, "unix_time", timestr);
   g_free(timestr);
-  timestr = g_strdup(ctime(&tm));
-  /* Chop the newline */
-  timestr[strlen(timestr)-1] = 0;
+  timestr = owl_util_time_to_timestr(localtime(&tm));
   owl_message_set_attribute(m, "time", timestr);
   g_free(timestr);
 }
@@ -798,7 +788,7 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
     int status;
     char *zcrypt;
 
-    zcrypt = g_strdup_printf("%s/zcrypt", owl_get_bindir());
+    zcrypt = g_build_filename(owl_get_bindir(), "zcrypt", NULL);
 
     rv = call_filter(zcrypt, argv, owl_message_get_body(m), &out, &status);
     g_free(zcrypt);

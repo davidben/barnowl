@@ -3,11 +3,10 @@
 #include "owl.h"
 #undef WINDOW
 
-#include <unistd.h>
-#include <stdlib.h>
+#include <stdio.h>
 
 #undef instr
-#include <curses.h>
+#include <ncursesw/curses.h>
 
 owl_global g;
 
@@ -122,13 +121,14 @@ int owl_regtest(void) {
 
 #define FAIL_UNLESS(desc,pred) do { int __pred = (pred);                \
     numtests++;                                                         \
-    printf("%s %s", (__pred)?"ok":(numfailed++,"not ok"), desc);        \
+    printf("%s %d %s", (__pred) ? "ok" : (numfailed++, "not ok"), numtests, desc); \
     if(!(__pred)) printf("\t(%s:%d)", __FILE__, __LINE__); printf("%c", '\n'); } while(0)
 
 
 int owl_util_regtest(void)
 {
   int numfailed=0;
+  char *s, *path, *home;
 
   printf("# BEGIN testing owl_util\n");
 
@@ -217,11 +217,82 @@ int owl_util_regtest(void)
 		"\"'\"'\""
 		"\"");
 
-  GString *g = g_string_new("");
-  owl_string_appendf_quoted(g, "%q foo %q%q %s %", "hello", "world is", "can't");
+  GString *quoted = g_string_new("");
+  owl_string_appendf_quoted(quoted, "%q foo %q%q %s %", "hello", "world is", "can't");
   FAIL_UNLESS("owl_string_appendf",
-              !strcmp(g->str, "hello foo 'world is'\"can't\" %s %"));
-  g_string_free(g, true);
+              !strcmp(quoted->str, "hello foo 'world is'\"can't\" %s %"));
+  g_string_free(quoted, true);
+
+
+  s = owl_util_baseclass("barnowl");
+  FAIL_UNLESS("baseclass barnowl", !strcmp("barnowl", s));
+  g_free(s);
+  s = owl_util_baseclass("unbarnowl");
+  FAIL_UNLESS("baseclass unbarnowl", !strcmp("barnowl", s));
+  g_free(s);
+  s = owl_util_baseclass("unununbarnowl.d.d");
+  FAIL_UNLESS("baseclass unununbarnowl.d.d", !strcmp("barnowl", s));
+  g_free(s);
+  s = owl_util_baseclass("ununun.d.d");
+  FAIL_UNLESS("baseclass ununun.d.d", !strcmp("", s));
+  g_free(s);
+  s = owl_util_baseclass("d.d.d.d");
+  FAIL_UNLESS("baseclass d.d.d.d", !strcmp("d", s));
+  g_free(s);
+  s = owl_util_baseclass("n.d.d.d");
+  FAIL_UNLESS("baseclass n.d.d.d", !strcmp("n", s));
+  g_free(s);
+  s = owl_util_baseclass("ununun.");
+  FAIL_UNLESS("baseclass ununun.", !strcmp(".", s));
+  g_free(s);
+  s = owl_util_baseclass("unununu");
+  FAIL_UNLESS("baseclass unununu", !strcmp("u", s));
+  g_free(s);
+
+
+  s = owl_util_makepath("foo/bar");
+  FAIL_UNLESS("makepath foo/bar", !strcmp("foo/bar", s));
+  g_free(s);
+  s = owl_util_makepath("//foo///bar");
+  FAIL_UNLESS("makepath //foo///bar", !strcmp("/foo/bar", s));
+  g_free(s);
+  s = owl_util_makepath("foo/~//bar/");
+  FAIL_UNLESS("makepath foo/~//bar/", !strcmp("foo/~/bar/", s));
+  g_free(s);
+  s = owl_util_makepath("~thisuserhadreallybetternotexist/foobar/");
+  FAIL_UNLESS("makepath ~thisuserhadreallybetternotexist/foobar/",
+              !strcmp("~thisuserhadreallybetternotexist/foobar/", s));
+  g_free(s);
+
+  home = g_strdup(owl_global_get_homedir(&g));
+  s = owl_util_makepath("~");
+  FAIL_UNLESS("makepath ~", !strcmp(home, s));
+  g_free(s);
+
+  path = g_build_filename(home, "foo/bar/baz", NULL);
+  s = owl_util_makepath("~///foo/bar//baz");
+  FAIL_UNLESS("makepath ~///foo/bar//baz", !strcmp(path, s));
+  g_free(s);
+  g_free(path);
+  g_free(home);
+
+  home = owl_util_homedir_for_user("root");
+  if (home == NULL) {
+    /* Just make some noise so we notice. */
+    home = g_strdup("<WHAT>");
+    fprintf(stderr, "owl_util_homedir_for_user failed");
+  }
+
+  s = owl_util_makepath("~root");
+  FAIL_UNLESS("makepath ~root", !strcmp(home, s));
+  g_free(s);
+
+  path = g_build_filename(home, "foo/bar/baz", NULL);
+  s = owl_util_makepath("~root///foo/bar//baz");
+  FAIL_UNLESS("makepath ~root///foo/bar//baz", !strcmp(path, s));
+  g_free(s);
+  g_free(path);
+  g_free(home);
 
   /* if (numfailed) printf("*** WARNING: failures encountered with owl_util\n"); */
   printf("# END testing owl_util (%d failures)\n", numfailed);
@@ -274,6 +345,7 @@ int owl_dict_regtest(void) {
 
 int owl_variable_regtest(void) {
   owl_vardict vd;
+  owl_variable *var;
   int numfailed=0;
   char *value;
   const void *v;
@@ -281,55 +353,69 @@ int owl_variable_regtest(void) {
   printf("# BEGIN testing owl_variable\n");
   FAIL_UNLESS("setup", 0==owl_variable_dict_setup(&vd));
 
-  FAIL_UNLESS("get bool", 0==owl_variable_get_bool(&vd,"rxping"));
-  FAIL_UNLESS("get bool (no such)", -1==owl_variable_get_bool(&vd,"mumble"));
+  FAIL_UNLESS("get bool var", NULL != (var = owl_variable_get_var(&vd, "rxping")));
+  FAIL_UNLESS("get bool", 0 == owl_variable_get_bool(var));
+  FAIL_UNLESS("get bool (no such)", NULL == owl_variable_get_var(&vd, "mumble"));
   FAIL_UNLESS("get bool as string",
-	      !strcmp((value = owl_variable_get_tostring(&vd,"rxping")), "off"));
+	      !strcmp((value = owl_variable_get_tostring(var)), "off"));
   g_free(value);
-  FAIL_UNLESS("set bool 1", 0==owl_variable_set_bool_on(&vd,"rxping"));
-  FAIL_UNLESS("get bool 2", 1==owl_variable_get_bool(&vd,"rxping"));
-  FAIL_UNLESS("set bool 3", 0==owl_variable_set_fromstring(&vd,"rxping","off",0,0));
-  FAIL_UNLESS("get bool 4", 0==owl_variable_get_bool(&vd,"rxping"));
-  FAIL_UNLESS("set bool 5", -1==owl_variable_set_fromstring(&vd,"rxping","xxx",0,0));
-  FAIL_UNLESS("get bool 6", 0==owl_variable_get_bool(&vd,"rxping"));
+  FAIL_UNLESS("set bool 1", 0 == owl_variable_set_bool_on(var));
+  FAIL_UNLESS("get bool 2", 1 == owl_variable_get_bool(var));
+  FAIL_UNLESS("set bool 3", 0 == owl_variable_set_fromstring(var, "off", 0));
+  FAIL_UNLESS("get bool 4", 0 == owl_variable_get_bool(var));
+  FAIL_UNLESS("set bool 5", -1 == owl_variable_set_fromstring(var, "xxx", 0));
+  FAIL_UNLESS("get bool 6", 0 == owl_variable_get_bool(var));
 
 
-  FAIL_UNLESS("get string", 0==strcmp("~/zlog/people", owl_variable_get_string(&vd,"logpath")));
-  FAIL_UNLESS("set string 7", 0==owl_variable_set_string(&vd,"logpath","whee"));
-  FAIL_UNLESS("get string", 0==strcmp("whee", owl_variable_get_string(&vd,"logpath")));
+  FAIL_UNLESS("get string var", NULL != (var = owl_variable_get_var(&vd, "logpath")));
+  FAIL_UNLESS("get string", 0 == strcmp("~/zlog/people", owl_variable_get_string(var)));
+  FAIL_UNLESS("set string 7", 0 == owl_variable_set_string(var, "whee"));
+  FAIL_UNLESS("get string", !strcmp("whee", owl_variable_get_string(var)));
 
-  FAIL_UNLESS("get int", 8==owl_variable_get_int(&vd,"typewinsize"));
-  FAIL_UNLESS("get int (no such)", -1==owl_variable_get_int(&vd,"mmble"));
+  FAIL_UNLESS("get int var", NULL != (var = owl_variable_get_var(&vd, "typewinsize")));
+  FAIL_UNLESS("get int", 8 == owl_variable_get_int(var));
+  FAIL_UNLESS("get int (no such)", NULL == owl_variable_get_var(&vd, "mumble"));
   FAIL_UNLESS("get int as string",
-	      !strcmp((value = owl_variable_get_tostring(&vd,"typewinsize")), "8"));
+	      !strcmp((value = owl_variable_get_tostring(var)), "8"));
   g_free(value);
-  FAIL_UNLESS("set int 1", 0==owl_variable_set_int(&vd,"typewinsize",12));
-  FAIL_UNLESS("get int 2", 12==owl_variable_get_int(&vd,"typewinsize"));
-  FAIL_UNLESS("set int 1b", -1==owl_variable_set_int(&vd,"typewinsize",-3));
-  FAIL_UNLESS("get int 2b", 12==owl_variable_get_int(&vd,"typewinsize"));
-  FAIL_UNLESS("set int 3", 0==owl_variable_set_fromstring(&vd,"typewinsize","9",0,0));
-  FAIL_UNLESS("get int 4", 9==owl_variable_get_int(&vd,"typewinsize"));
-  FAIL_UNLESS("set int 5", -1==owl_variable_set_fromstring(&vd,"typewinsize","xxx",0,0));
-  FAIL_UNLESS("set int 6", -1==owl_variable_set_fromstring(&vd,"typewinsize","",0,0));
-  FAIL_UNLESS("get int 7", 9==owl_variable_get_int(&vd,"typewinsize"));
+  FAIL_UNLESS("set int 1", 0 == owl_variable_set_int(var, 12));
+  FAIL_UNLESS("get int 2", 12 == owl_variable_get_int(var));
+  FAIL_UNLESS("set int 1b", -1 == owl_variable_set_int(var, -3));
+  FAIL_UNLESS("get int 2b", 12 == owl_variable_get_int(var));
+  FAIL_UNLESS("set int 3", 0 == owl_variable_set_fromstring(var, "9", 0));
+  FAIL_UNLESS("get int 4", 9 == owl_variable_get_int(var));
+  FAIL_UNLESS("set int 5", -1 == owl_variable_set_fromstring(var, "xxx", 0));
+  FAIL_UNLESS("set int 6", -1 == owl_variable_set_fromstring(var, "", 0));
+  FAIL_UNLESS("get int 7", 9 == owl_variable_get_int(var));
 
   owl_variable_dict_newvar_string(&vd, "stringvar", "", "", "testval");
-  FAIL_UNLESS("get new string var", NULL != (v = owl_variable_get(&vd, "stringvar", OWL_VARIABLE_STRING)));
-  FAIL_UNLESS("get new string val", !strcmp("testval", owl_variable_get_string(&vd, "stringvar")));
-  owl_variable_set_string(&vd, "stringvar", "new val");
-  FAIL_UNLESS("update string val", !strcmp("new val", owl_variable_get_string(&vd, "stringvar")));
+  FAIL_UNLESS("get new string var", NULL != (var = owl_variable_get_var(&vd, "stringvar")));
+  FAIL_UNLESS("get new string var", NULL != (v = owl_variable_get(var)));
+  FAIL_UNLESS("get new string val", !strcmp("testval", owl_variable_get_string(var)));
+  owl_variable_set_string(var, "new val");
+  FAIL_UNLESS("update string val", !strcmp("new val", owl_variable_get_string(var)));
 
   owl_variable_dict_newvar_int(&vd, "intvar", "", "", 47);
-  FAIL_UNLESS("get new int var", NULL != (v = owl_variable_get(&vd, "intvar", OWL_VARIABLE_INT)));
-  FAIL_UNLESS("get new int val", 47 == owl_variable_get_int(&vd, "intvar"));
-  owl_variable_set_int(&vd, "intvar", 17);
-  FAIL_UNLESS("update bool val", 17 == owl_variable_get_int(&vd, "intvar"));
+  FAIL_UNLESS("get new int var", NULL != (var = owl_variable_get_var(&vd, "intvar")));
+  FAIL_UNLESS("get new int var", NULL != (v = owl_variable_get(var)));
+  FAIL_UNLESS("get new int val", 47 == owl_variable_get_int(var));
+  owl_variable_set_int(var, 17);
+  FAIL_UNLESS("update int val", 17 == owl_variable_get_int(var));
 
   owl_variable_dict_newvar_bool(&vd, "boolvar", "", "", 1);
-  FAIL_UNLESS("get new bool var", NULL != (v = owl_variable_get(&vd, "boolvar", OWL_VARIABLE_BOOL)));
-  FAIL_UNLESS("get new bool val", owl_variable_get_bool(&vd, "boolvar"));
-  owl_variable_set_bool_off(&vd, "boolvar");
-  FAIL_UNLESS("update string val", !owl_variable_get_bool(&vd, "boolvar"));
+  FAIL_UNLESS("get new bool var", NULL != (var = owl_variable_get_var(&vd, "boolvar")));
+  FAIL_UNLESS("get new bool var", NULL != (v = owl_variable_get(var)));
+  FAIL_UNLESS("get new bool val", owl_variable_get_bool(var));
+  owl_variable_set_bool_off(var);
+  FAIL_UNLESS("update bool val", !owl_variable_get_bool(var));
+
+  owl_variable_dict_newvar_string(&vd, "nullstringvar", "", "", NULL);
+  FAIL_UNLESS("get new string (NULL) var", NULL != (var = owl_variable_get_var(&vd, "nullstringvar")));
+  FAIL_UNLESS("get string (NULL)", NULL == (value = owl_variable_get_tostring(var)));
+  g_free(value);
+  var = owl_variable_get_var(&vd, "zsigproc");
+  FAIL_UNLESS("get string (NULL) 2", NULL == (value = owl_variable_get_tostring(var)));
+  g_free(value);
 
   owl_variable_dict_cleanup(&vd);
 
@@ -424,6 +510,8 @@ int owl_filter_regtest(void) {
   /* support referencing a filter several times */
   FAIL_UNLESS("DAG", (f5 = owl_filter_new_fromstring("dag", "filter f1 or filter f1")) != NULL);
   owl_filter_delete(f5);
+
+  owl_message_cleanup(&m);
 
   return 0;
 }
