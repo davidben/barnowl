@@ -58,12 +58,6 @@ static void owl_mainwin_redraw(owl_window *w, WINDOW *recwin, void *user_data)
   markedmsgid = owl_global_get_markedmsgid(&g);
   v = owl_global_get_current_view(&g);
 
-  if(owl_view_iterator_is_at_end(curmsg)
-     && !owl_view_iterator_is_at_start(curmsg)) {
-    owl_function_error("WARNING: curmsg is-at-end. Please report this bug to bug-barnowl@mit.edu");
-    owl_view_iterator_prev(curmsg);
-  }
-
   if (v==NULL) {
     owl_function_debugmsg("Hit a null window in owl_mainwin_redisplay.");
     return;
@@ -95,8 +89,7 @@ static void owl_mainwin_redraw(owl_window *w, WINDOW *recwin, void *user_data)
       owl_view_iterator_next(iter)) {
     if (isfull) break;
     m = owl_view_iterator_get_message(iter);
-    int iscurrent = owl_message_get_id(m) ==
-      owl_message_get_id(owl_view_iterator_get_message(curmsg));
+    int iscurrent = (owl_view_iterator_cmp(iter, curmsg) == 0);
 
     /* hold on to y in case this is the current message or deleted */
     getyx(recwin, y, x);

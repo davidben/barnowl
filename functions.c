@@ -752,8 +752,15 @@ void owl_function_lastmsg_noredisplay(void)
   v=owl_global_get_current_view(&g);
   owl_view_iterator_init_end(it, v);
   owl_view_iterator_prev(it);
-  owl_global_set_curmsg(&g, it);
-  owl_function_calculate_topmsg(OWL_DIRECTION_UPWARDS);
+  if (owl_view_iterator_cmp(it, owl_global_get_curmsg(&g)) <= 0) {
+    /* If we're at (or past) the last message, go one past it. */
+    owl_view_iterator_next(it);
+    owl_global_set_curmsg(&g, it);
+    owl_global_set_topmsg(&g, it);
+  } else {
+    owl_global_set_curmsg(&g, it);
+    owl_function_calculate_topmsg(OWL_DIRECTION_UPWARDS);
+  }
   /* owl_mainwin_redisplay(owl_global_get_mainwin(&g)); */
   owl_global_set_direction_downwards(&g);
 }
