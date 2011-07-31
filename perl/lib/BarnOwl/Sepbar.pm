@@ -30,7 +30,8 @@ sub message_list_progress {
 
 sub messages_before_point {
     BarnOwl::debug("redraw sepbar");
-    if (!$view || $view ne BarnOwl::getview()) {
+    if (!$view || $view ne BarnOwl::getview() ||
+        !$iter->is_valid || !$start->is_valid) {
         $count = 1;
         $view  = BarnOwl::getview();
         $iter  = BarnOwl::curmsg_iterator();
