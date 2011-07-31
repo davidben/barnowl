@@ -14,12 +14,14 @@ typedef struct _ov_range  { /* noproto */
 struct _owl_view { /* noproto */
   unsigned long *messages;
   unsigned long next_cached_id;
+  GList    *iterators;
   ov_range *ranges;
   char     *filter_name;
   long      saved_id;
 };
 
 struct _owl_view_iterator { /* noproto */
+  GList    *view_link;
   owl_view *view;
   long      index;
   struct _owl_view_iterator *delete_next;
@@ -41,6 +43,7 @@ static void ov_fill_back(owl_view *v, ov_range *r);
 static void ov_fill_forward(owl_view *v, ov_range *r);
 static ov_range *ov_range_at(owl_view *v, int id);
 /* owl_view_iterator */
+static void ovi_set_view(owl_view_iterator *it, owl_view *view);
 static ov_range *ovi_range(owl_view_iterator *it);
 static int ovi_next(owl_view_iterator *it);
 static int ovi_prev(owl_view_iterator *it);
@@ -60,6 +63,7 @@ owl_view* owl_view_new(const char *filtname)
   v->next_cached_id  = 4096 * 8;
   v->saved_id = 0;
   v->filter_name = g_strdup(filtname);
+  v->iterators = NULL;
   all_views = g_list_prepend(all_views, v);
   return v;
 }
@@ -94,9 +98,10 @@ void owl_view_handle_deletion(int id)
 
 int owl_view_is_empty(const owl_view *v)
 {
-  owl_view_iterator it;
-  owl_view_iterator_init_start(&it, v);
-  return owl_view_iterator_is_at_end(&it);
+  owl_view_iterator *it;
+  it = owl_view_iterator_delete_later(owl_view_iterator_new());
+  owl_view_iterator_init_start(it, v);
+  return owl_view_iterator_is_at_end(it);
 }
 
 /* saves the current message position in the filter so it can 
@@ -126,6 +131,9 @@ const char *owl_view_get_filtname(const owl_view *v)
 
 void owl_view_delete(owl_view *v)
 {
+  /* Invalidate all iterators. */
+  while (v->iterators != NULL)
+    owl_view_iterator_invalidate(v->iterators->data);
   all_views = g_list_remove(all_views, v);
   ov_range *r = v->ranges;
   g_free(v->messages);
@@ -165,13 +173,14 @@ owl_view_iterator * owl_view_iterator_new(void)
 {
   owl_view_iterator *it = g_new(owl_view_iterator, 1);
   it->delete_next = NULL;
-  owl_view_iterator_invalidate(it);
+  it->view_link = NULL;
+  it->view = NULL;
   return it;
 }
 
 void owl_view_iterator_invalidate(owl_view_iterator *it)
 {
-  it->view = NULL;
+  ovi_set_view(it, NULL);
 }
 
 int owl_view_iterator_is_valid(owl_view_iterator *it)
@@ -181,14 +190,14 @@ int owl_view_iterator_is_valid(owl_view_iterator *it)
 
 void owl_view_iterator_init_id(owl_view_iterator *it, const owl_view *v, int message_id)
 {
-  it->view  = (owl_view *)v;
+  ovi_set_view(it, (owl_view *)v);
   it->index = message_id;
 }
 
 /* Initialized iterator to point at the first message */
 void owl_view_iterator_init_start(owl_view_iterator *it, const owl_view *v)
 {
-  it->view = (owl_view *)v;
+  ovi_set_view(it, (owl_view *)v);
   it->index = 0;
 }
 
@@ -196,7 +205,7 @@ void owl_view_iterator_init_start(owl_view_iterator *it, const owl_view *v)
 void owl_view_iterator_init_end(owl_view_iterator *it, const owl_view *v)
 {
   ov_range *r;
-  it->view = (owl_view *)v;
+  ovi_set_view(it, (owl_view *)v);
   r = ov_range_at(it->view, -1);
   ov_fill_back(it->view, r);
   it->index = r->next_fwd;
@@ -204,7 +213,7 @@ void owl_view_iterator_init_end(owl_view_iterator *it, const owl_view *v)
 
 void owl_view_iterator_clone(owl_view_iterator *dst, owl_view_iterator *src)
 {
-  dst->view = src->view;
+  ovi_set_view(dst, src->view);
   dst->index = src->index;
 }
 
@@ -248,6 +257,7 @@ int owl_view_iterator_cmp(owl_view_iterator *it1, owl_view_iterator *it2)
 
 void owl_view_iterator_delete(owl_view_iterator *it)
 {
+  owl_view_iterator_invalidate(it);
   g_free(it);
 }
 
@@ -470,6 +480,19 @@ static ov_range *ov_range_at(owl_view *v, int id)
   return ov_range_find_or_insert(v->ranges, id);
 }
 /* owl_view_iterator */
+static void ovi_set_view(owl_view_iterator *it, owl_view *view)
+{
+  if (it->view) {
+    it->view->iterators = g_list_delete_link(it->view->iterators,
+                                             it->view_link);
+  }
+  it->view = view;
+  if (it->view) {
+    it->view_link = it->view->iterators =
+      g_list_prepend(it->view->iterators, it);
+  }
+}
+
 static ov_range *ovi_range(owl_view_iterator *it)
 {
   return ov_range_at(it->view, it->index);
