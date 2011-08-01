@@ -128,6 +128,7 @@ void owl_global_complete_setup(owl_global *g)
   g->msglist = owl_messagelist_new();
   g->curmsg = owl_view_iterator_new();
   g->topmsg = owl_view_iterator_new();
+  g->topmsg_valid = true;
   owl_cmddict_setup(&(g->cmds));
 }
 
@@ -211,16 +212,27 @@ void owl_global_set_curmsg(owl_global *g, owl_view_iterator *it) {
 
 /* topmsg */
 
-owl_view_iterator* owl_global_get_topmsg(const owl_global *g) {
+owl_view_iterator* owl_global_get_topmsg(owl_global *g) {
+  if (!g->topmsg_valid) {
+    owl_function_calculate_topmsg(g->topmsg_direction);
+    g->topmsg_valid = true;
+  }
   return g->topmsg;
 }
 
-void owl_global_set_topmsg(owl_global *g, owl_view_iterator *it) {
-  if(!it) {
-    owl_view_iterator_invalidate(g->topmsg);
-  } else {
-    owl_view_iterator_clone(g->topmsg, it);
+void owl_global_dirty_topmsg(owl_global *g, int direction)
+{
+  if (!g->topmsg_valid && g->topmsg_direction != direction) {
+    /* Force a computation of topmsg at the previous direction. */
+    owl_global_get_topmsg(g);
   }
+  g->topmsg_valid = false;
+  g->topmsg_direction = direction;
+}
+
+void owl_global_set_topmsg(owl_global *g, owl_view_iterator *it) {
+  owl_view_iterator_clone(g->topmsg, it);
+  g->topmsg_valid = true;
 }
 
 /* markedmsgid */

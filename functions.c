@@ -550,7 +550,7 @@ void owl_function_nextmsg_full(const char *filter, int skip_deleted, int last_if
 
   if (last_if_none || found) {
     owl_global_set_curmsg(&g, it);
-    owl_function_calculate_topmsg(OWL_DIRECTION_DOWNWARDS);
+    owl_global_dirty_topmsg(&g, OWL_DIRECTION_DOWNWARDS);
     owl_mainwin_redisplay(owl_global_get_mainwin(&g));
     owl_global_set_direction_downwards(&g);
   }
@@ -597,7 +597,7 @@ void owl_function_prevmsg_full(const char *filter, int skip_deleted, int first_i
 
   if (first_if_none || found) {
     owl_global_set_curmsg(&g, it);
-    owl_function_calculate_topmsg(OWL_DIRECTION_UPWARDS);
+    owl_global_dirty_topmsg(&g, OWL_DIRECTION_UPWARDS);
     owl_mainwin_redisplay(owl_global_get_mainwin(&g));
     owl_global_set_direction_upwards(&g);
   }
@@ -723,7 +723,7 @@ void owl_function_expunge(void)
   if(owl_view_iterator_is_at_end(cur))
     owl_view_iterator_prev(cur);
 
-  owl_function_calculate_topmsg(OWL_DIRECTION_NONE);
+  owl_global_dirty_topmsg(&g, OWL_DIRECTION_NONE);
   /* if there are no messages set the direction to down in case we
      delete everything upwards */
   owl_global_set_direction_downwards(&g);
@@ -759,7 +759,7 @@ void owl_function_lastmsg_noredisplay(void)
     owl_global_set_topmsg(&g, it);
   } else {
     owl_global_set_curmsg(&g, it);
-    owl_function_calculate_topmsg(OWL_DIRECTION_UPWARDS);
+    owl_global_dirty_topmsg(&g, OWL_DIRECTION_UPWARDS);
   }
   /* owl_mainwin_redisplay(owl_global_get_mainwin(&g)); */
   owl_global_set_direction_downwards(&g);
@@ -962,7 +962,7 @@ void owl_function_calculate_topmsg(int direction)
 
   v=owl_global_get_current_view(&g);
   curmsg = owl_global_get_curmsg(&g);
-  topmsg = owl_global_get_topmsg(&g);
+  topmsg = g.topmsg;
   recwinlines=owl_global_get_recwin_lines(&g);
 
   /*
@@ -2109,7 +2109,7 @@ void owl_function_change_currentview_filter(const char *filtname)
   owl_global_set_curmsg(&g, it);
   owl_global_set_topmsg(&g, it);
 
-  owl_function_calculate_topmsg(OWL_DIRECTION_UPWARDS);
+  owl_global_dirty_topmsg(&g, OWL_DIRECTION_UPWARDS);
   owl_mainwin_redisplay(owl_global_get_mainwin(&g));
   owl_global_set_direction_downwards(&g);
 }
@@ -3014,7 +3014,7 @@ void owl_function_search_helper(int consider_current, int direction)
     m=owl_view_iterator_get_message(it);
     if (owl_message_search(m, owl_global_get_search_re(&g))) {
       owl_global_set_curmsg(&g, it);
-      owl_function_calculate_topmsg(direction);
+      owl_global_dirty_topmsg(&g, direction);
       owl_mainwin_redisplay(owl_global_get_mainwin(&g));
       if (direction==OWL_DIRECTION_DOWNWARDS) {
         owl_global_set_direction_downwards(&g);
@@ -3347,7 +3347,7 @@ void owl_function_change_style(owl_view *v, const char *stylename)
   }
   owl_global_set_current_style(&g, s);
   owl_messagelist_invalidate_formats(owl_global_get_msglist(&g));
-  owl_function_calculate_topmsg(OWL_DIRECTION_DOWNWARDS);
+  owl_global_dirty_topmsg(&g, OWL_DIRECTION_DOWNWARDS);
   owl_mainwin_redisplay(owl_global_get_mainwin(&g));
 }
 
@@ -3366,7 +3366,7 @@ void owl_function_toggleoneline(void)
   }
 
   owl_messagelist_invalidate_formats(owl_global_get_msglist(&g));
-  owl_function_calculate_topmsg(OWL_DIRECTION_DOWNWARDS);
+  owl_global_dirty_topmsg(&g, OWL_DIRECTION_DOWNWARDS);
   owl_mainwin_redisplay(owl_global_get_mainwin(&g));
 }
 
@@ -3572,7 +3572,7 @@ void owl_function_swap_cur_marked(void)
     owl_view_iterator_prev(owl_global_get_curmsg(&g));
   }
 
-  owl_function_calculate_topmsg(OWL_DIRECTION_NONE);
+  owl_global_dirty_topmsg(&g, OWL_DIRECTION_NONE);
   owl_mainwin_redisplay(owl_global_get_mainwin(&g));
   owl_global_set_direction_downwards(&g);
 }

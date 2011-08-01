@@ -420,7 +420,7 @@ redisplay()
 	CODE:
 	{
 		owl_messagelist_invalidate_formats(owl_global_get_msglist(&g));
-		owl_function_calculate_topmsg(OWL_DIRECTION_DOWNWARDS);
+		owl_global_dirty_topmsg(&g, OWL_DIRECTION_DOWNWARDS);
 		owl_mainwin_redisplay(owl_global_get_mainwin(&g));
 	}
 
