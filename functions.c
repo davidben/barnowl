@@ -755,12 +755,9 @@ void owl_function_lastmsg_noredisplay(void)
   if (owl_view_iterator_cmp(it, owl_global_get_curmsg(&g)) <= 0) {
     /* If we're at (or past) the last message, go one past it. */
     owl_view_iterator_next(it);
-    owl_global_set_curmsg(&g, it);
-    owl_global_set_topmsg(&g, it);
-  } else {
-    owl_global_set_curmsg(&g, it);
-    owl_global_dirty_topmsg(&g, OWL_DIRECTION_UPWARDS);
   }
+  owl_global_set_curmsg(&g, it);
+  owl_global_dirty_topmsg(&g, OWL_DIRECTION_UPWARDS);
   /* owl_mainwin_redisplay(owl_global_get_mainwin(&g)); */
   owl_global_set_direction_downwards(&g);
 }
@@ -964,6 +961,12 @@ void owl_function_calculate_topmsg(int direction)
   curmsg = owl_global_get_curmsg(&g);
   topmsg = g.topmsg;
   recwinlines=owl_global_get_recwin_lines(&g);
+
+  /* If we're past the last message, always set topmsg off-screen too. */
+  if (owl_view_iterator_is_at_end(curmsg)) {
+    owl_view_iterator_clone(topmsg, curmsg);
+    return;
+  }
 
   /*
   if (owl_view_get_size(v) < 1) {
