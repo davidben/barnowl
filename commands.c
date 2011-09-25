@@ -689,7 +689,6 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "current view.\n"),
   OWLCMD_ALIAS("del", "delete"),
 
-#if 0
   OWLCMD_ARGS("delete-and-expunge", owl_command_delete_and_expunge, OWL_CTX_INTERACTIVE,
               "delete a message",
               "delete-and-expunge [-id msgid] [-q | --quiet]",
@@ -698,7 +697,6 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
               "If --quiet is specified, then there is no message displayed on\n"
               "success.\n"),
   OWLCMD_ALIAS("delx", "delete-and-expunge"),
-#endif
 
   OWLCMD_ARGS("undelete", owl_command_undelete, OWL_CTX_INTERACTIVE,
 	      "unmark a message for deletion",
@@ -2344,7 +2342,6 @@ char *owl_command_delete(int argc, const char *const *argv, const char *buff)
   return NULL;
 }
 
-#if 0
 char *owl_command_delete_and_expunge(int argc, const char *const *argv, const char *buff)
 {
   bool exclaim_success = true;
@@ -2359,19 +2356,18 @@ char *owl_command_delete_and_expunge(int argc, const char *const *argv, const ch
   }
 
   if (argc == 1) {
-    owl_function_delete_and_expunge_cur(exclaim_success);
+    owl_function_expunge_cur(exclaim_success);
     return NULL;
   }
 
   if (argc == 3 && (!strcmp(argv[1], "-id") || !strcmp(argv[1], "--id"))) {
-    owl_function_delete_and_expunge_by_id(atoi(argv[2]), exclaim_success);
+    owl_function_expunge_by_id(atoi(argv[2]), exclaim_success);
     return NULL;
   }
 
   owl_function_makemsg("Unknown arguments to delete-and-expunge command");
   return NULL;
 }
-#endif
 
 char *owl_command_undelete(int argc, const char *const *argv, const char *buff)
 {

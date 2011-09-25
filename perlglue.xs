@@ -693,6 +693,14 @@ message_deleted(cls, id)
 		owl_view_handle_deletion(id);
 
 void
+message_will_delete(cls, id)
+	const char *cls;
+	int id;
+	CODE:
+		(void)cls;
+		owl_view_prepare_deletion(id);
+
+void
 owl_view_consider_message(cls, msg)
 	const char *cls;
 	SV *msg;

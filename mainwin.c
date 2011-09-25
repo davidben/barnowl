@@ -186,3 +186,31 @@ owl_view_iterator *owl_mainwin_get_last_msg(const owl_mainwin *mw)
 {
   return mw->lastdisplayed;
 }
+
+void owl_mainwin_on_will_remove(owl_mainwin *mw, int id)
+{
+  owl_view_iterator *curmsg, *next;
+  owl_message *msg;
+
+  /* Is the current message about to disappear? */
+  curmsg = owl_global_get_curmsg(&g);
+  msg = owl_view_iterator_get_message(curmsg);
+  if (msg && owl_message_get_id(msg) == id) {
+    /* If so and there's no message after it, move to the previous. */
+    next = owl_view_iterator_new();
+    owl_view_iterator_clone(next, curmsg);
+    owl_view_iterator_next(next);
+    if (owl_view_iterator_is_at_end(next))
+      owl_view_iterator_prev(curmsg);
+    owl_view_iterator_delete(next);
+  }
+
+  /* FIXME: This really should be on_remove, not on_will_remove. However, since
+   * each of these operations are delayed, it ends up not making a difference. */
+  owl_global_dirty_topmsg(&g, OWL_DIRECTION_NONE);
+  /* if there are no messages set the direction to down in case we
+     delete everything upwards */
+  owl_global_set_direction_downwards(&g);
+
+  owl_mainwin_redisplay(owl_global_get_mainwin(&g));
+}

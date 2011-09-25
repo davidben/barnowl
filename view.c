@@ -86,6 +86,14 @@ void owl_view_consider_message(owl_view *v, const owl_message *m)
   ov_mark_message(v, id, owl_filter_message_match(f, m));
 }
 
+void owl_view_prepare_deletion(int id)
+{
+  /* TODO: Make this a proper generic signal and whatnot instead of
+   * introducing a circular dependency. */
+  if (owl_global_get_mainwin(&g))
+    owl_mainwin_on_will_remove(owl_global_get_mainwin(&g), id);
+}
+
 void owl_view_handle_deletion(int id)
 {
   GList *l = all_views;

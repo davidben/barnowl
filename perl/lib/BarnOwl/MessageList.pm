@@ -134,10 +134,21 @@ sub add_message {
     push @{$self->{keys}}, $m->id;
 }
 
+sub expunge_message {
+    my $self = shift;
+    my $message = shift;
+
+    BarnOwl::View->message_will_delete($message->id);
+    delete $self->{messages}->{$message->id};
+    BarnOwl::View->message_deleted($message->id);
+    $self->{keys} = [sort {$a <=> $b} keys %{$self->{messages}}];
+}
+
 sub expunge {
     my $self = shift;
     for my $message (values %{$self->{messages}}) {
         if($message->is_deleted) {
+            BarnOwl::View->message_will_delete($message->id);
             delete $self->{messages}->{$message->id};
             BarnOwl::View->message_deleted($message->id);
         }

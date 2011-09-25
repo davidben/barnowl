@@ -59,6 +59,17 @@ void owl_messagelist_expunge(owl_messagelist *ml)
                        );
 }
 
+void owl_messagelist_expunge_message(owl_messagelist *ml, owl_message *msg)
+{
+  OWL_PERL_CALL_METHOD(ml, "expunge_message",
+                       XPUSHs((SV*)msg); ,
+                       // Error
+                       "Error in expunge_message: %s",
+                       1, // Fatal
+                       OWL_PERL_VOID_CALL
+                       );
+}
+
 void owl_messagelist_iterate_begin(owl_message *ml, int pos, bool reverse)
 {
   OWL_PERL_CALL_METHOD(ml, "iterate_begin",
