@@ -263,6 +263,9 @@ typedef struct _owl_variable {
 				 * caller must free the result */
   GClosure *delete_fn;
 				/* frees val as needed */
+  GClosure *get_default_fn;
+                               /* return the default value, as set at creation time */
+  
 } owl_variable;
 
 typedef struct _owl_variable_init_params {
@@ -297,6 +300,8 @@ typedef struct _owl_variable_init_params {
 				 * caller must free the result */
   GCallback delete_fn;
 				/* frees val as needed */
+  GCallback get_default_fn;
+				/* return the default value as set at creation time */
 } owl_variable_init_params;
 
 
@@ -647,5 +652,11 @@ extern owl_global g;
 int ZGetSubscriptions(ZSubscription_t *, int *);
 int ZGetLocations(ZLocations_t *,int *);
 #endif
+
+/* We have to dynamically bind these ourselves */
+extern gboolean (*gvalue_from_sv) (GValue * value, SV * sv);
+extern SV * (*sv_from_gvalue) (const GValue * value);
+extern GClosure * (*perl_closure_new) (SV * callback, SV * data, gboolean swap);
+
 
 #endif /* INC_BARNOWL_OWL_H */
