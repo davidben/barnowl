@@ -574,7 +574,7 @@ int owl_variable_dict_setup(owl_vardict *vd) {
   return owl_variable_add_defaults(vd);
 }
 
-static CALLER_OWN GClosure *owl_variable_make_closure(owl_variable *v,
+CALLER_OWN GClosure *owl_variable_make_closure(owl_variable *v,
                                                       GCallback fn,
                                                       GClosureMarshal marshal) {
   GClosure *closure = g_cclosure_new(fn, NULL, NULL);
@@ -1029,13 +1029,15 @@ CALLER_OWN char *owl_variable_get_tostring(const owl_variable *v)
 CALLER_OWN char *owl_variable_get_default_tostring(const owl_variable *v)
 {
   char *ret = NULL;
-  GValue return_box = {0};
+  GValue default_value_box = {0};
   GValue variable_box = {0};
-  g_value_init(&return_box, G_TYPE_STRING);
   g_value_init(&variable_box, G_TYPE_POINTER);
+  g_value_init(&default_value_box, owl_variable_gtype_map[v->type]);
   g_value_set_pointer(&variable_box, (gpointer)v);
-  g_closure_invoke(v->get_default_fn, &return_box, 1, &variable_box, NULL);  
-  ret = owl_variable_invoke_tostring(v, &return_box);
+  g_closure_invoke(v->get_default_fn, &default_value_box, 1, 
+		   &variable_box, NULL);  
+  ret = owl_variable_invoke_tostring(v, &default_value_box);
+  g_value_unset(&default_value_box);
   return ret;
 }
 
@@ -1120,13 +1122,12 @@ void owl_variable_get_help(const owl_variable *v, owl_fmtext *fm) {
   g_free(tostring);
   owl_fmtext_append_normal(fm, "\n\n");
 
-  if(G_IS_VALUE(&(v->gval_default))) {
-    tostring = owl_variable_get_default_tostring(v);
-    owl_fmtext_append_normal(fm, "Default:        ");
-    owl_fmtext_append_normal(fm, (tostring ? tostring : "<null>"));
-    owl_fmtext_append_normal(fm, "\n\n");
-    g_free(tostring);
-  }
+  tostring = owl_variable_get_default_tostring(v);
+  owl_fmtext_append_normal(fm, "Default:        ");
+  owl_fmtext_append_normal(fm, (tostring ? tostring : "<null>"));
+  owl_fmtext_append_normal(fm, "\n\n");
+  g_free(tostring);
+
   owl_fmtext_append_normal(fm, "Valid Settings: ");
   owl_fmtext_append_normal(fm, owl_variable_get_validsettings(v));
   owl_fmtext_append_normal(fm, "\n\n");
