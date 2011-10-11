@@ -597,109 +597,109 @@ CALLER_OWN GClosure *owl_variable_make_closure(owl_variable *v,
 
 int owl_variable_dict_add_from_list(owl_vardict *vd, owl_variable_init_params *variables_to_init)
 {
-  owl_variable *cur = NULL;
-  owl_variable_init_params *var = NULL;
-  for (var = variables_to_init; var->name != NULL; var++) {
-    cur = g_new0(owl_variable, 1);
-    cur->type = var->type;
+  owl_variable *newvar = NULL;
+  owl_variable_init_params *init_params = NULL;
+  for (init_params = variables_to_init; init_params->name; init_params++) {
+    newvar = g_new0(owl_variable, 1);
+    newvar->type = init_params->type;
     /* strdup all the strings so we can delete them consistently. */
-    cur->name = g_strdup(var->name);
-    cur->summary = g_strdup(var->summary);
-    cur->description = g_strdup(var->description);
-    cur->validsettings = var->validsettings;
+    newvar->name = g_strdup(init_params->name);
+    newvar->summary = g_strdup(init_params->summary);
+    newvar->description = g_strdup(init_params->description);
+    newvar->validsettings = init_params->validsettings;
     GValue values[] = {{0}, {0}};
     GValue *value = values+1;
     GValue ret = {0};
     GCallback fn = NULL;
-    switch (var->type) {
+    switch (init_params->type) {
     case OWL_VARIABLE_STRING:
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_fn, 
                               G_CALLBACK(owl_variable_string_get_default), 
                               g_cclosure_user_marshal_STRING__VOID, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, set_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, set_fn, 
                               G_CALLBACK(owl_variable_string_set_default), 
                               g_cclosure_user_marshal_INT__STRING, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, validate_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, validate_fn,
                               G_CALLBACK(owl_variable_string_validate_default),
                               g_cclosure_user_marshal_INT__STRING, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, set_fromstring_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, set_fromstring_fn,
                               G_CALLBACK(owl_variable_string_set_fromstring_default),
                               g_cclosure_user_marshal_INT__STRING, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_tostring_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_tostring_fn,
                               G_CALLBACK(owl_variable_string_get_tostring_default),
                               g_cclosure_user_marshal_STRING__STRING, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_default_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_default_fn, 
                               G_CALLBACK(owl_variable_string_get_default_default), 
                               g_cclosure_user_marshal_STRING__VOID, fn);
 
       g_value_init(value,G_TYPE_STRING);
-      g_value_set_string(value, var->pval_default);
+      g_value_set_string(value, init_params->pval_default);
       break;
     case OWL_VARIABLE_BOOL:
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_fn, 
                               G_CALLBACK(owl_variable_int_get_default), 
                               g_cclosure_user_marshal_BOOLEAN__VOID, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, set_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, set_fn, 
                               G_CALLBACK(owl_variable_bool_set_default), 
                               g_cclosure_user_marshal_INT__BOOLEAN, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, validate_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, validate_fn,
                               G_CALLBACK(owl_variable_bool_validate_default),
                               g_cclosure_user_marshal_INT__BOOLEAN, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, set_fromstring_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, set_fromstring_fn,
                               G_CALLBACK(owl_variable_bool_set_fromstring_default),
                               g_cclosure_user_marshal_INT__STRING, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_tostring_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_tostring_fn,
                               G_CALLBACK(owl_variable_bool_get_tostring_default),
                               g_cclosure_user_marshal_STRING__BOOLEAN, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_default_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_default_fn,
                               G_CALLBACK(owl_variable_bool_get_default_default),
                               g_cclosure_user_marshal_BOOLEAN__VOID, fn);
 
       g_value_init(value,G_TYPE_BOOLEAN);
-      g_value_set_boolean(value, !!(var->ival_default));
+      g_value_set_boolean(value, !!(init_params->ival_default));
       break;
     case OWL_VARIABLE_INT:
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_fn, 
                               G_CALLBACK(owl_variable_int_get_default), 
                               g_cclosure_user_marshal_INT__VOID, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, set_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, set_fn, 
                               G_CALLBACK(owl_variable_int_set_default), 
                               g_cclosure_user_marshal_INT__INT, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, validate_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, validate_fn,
                               G_CALLBACK(owl_variable_int_validate_default),
                               g_cclosure_user_marshal_INT__INT, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, set_fromstring_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, set_fromstring_fn,
                               G_CALLBACK(owl_variable_int_set_fromstring_default),
                               g_cclosure_user_marshal_INT__STRING, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_tostring_fn,
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_tostring_fn,
                               G_CALLBACK(owl_variable_int_get_tostring_default),
                               g_cclosure_user_marshal_STRING__INT, fn);
-      OWL_VARIABLE_SETUP_FUNC(cur, var, get_default_fn, 
+      OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_default_fn, 
                               G_CALLBACK(owl_variable_int_get_default_default), 
                               g_cclosure_user_marshal_INT__VOID, fn);
 
       g_value_init(value,G_TYPE_INT);
-      g_value_set_int(value, var->ival_default);
+      g_value_set_int(value, init_params->ival_default);
       break;
     default:
       fprintf(stderr, "owl_variable_setup: invalid variable type\n");
       return(-2);
     }
-    OWL_VARIABLE_SETUP_FUNC(cur, var, delete_fn, 
+    OWL_VARIABLE_SETUP_FUNC(newvar, init_params, delete_fn, 
                             G_CALLBACK(owl_variable_delete_default),
                             g_cclosure_marshal_VOID__VOID, fn);
     
-    g_value_init(&(cur->gval_default), G_VALUE_TYPE(value));
-    g_value_init(&(cur->val), G_VALUE_TYPE(value));
-    g_value_copy(value, &(cur->gval_default));
+    g_value_init(&(newvar->gval_default), G_VALUE_TYPE(value));
+    g_value_init(&(newvar->val), G_VALUE_TYPE(value));
+    g_value_copy(value, &(newvar->gval_default));
     /* we have the value boxed up already *anyway*, so... */
     g_value_init(values, G_TYPE_POINTER);
-    g_value_set_pointer(values, cur);
+    g_value_set_pointer(values, newvar);
     g_value_init(&ret, G_TYPE_INT);
-    g_closure_invoke(cur->set_fn, &ret, 2, values, NULL);
+    g_closure_invoke(newvar->set_fn, &ret, 2, values, NULL);
     g_value_unset(value);
     /*    g_value_unset(&ret); */
-    owl_dict_insert_element(vd, cur->name, cur, NULL);
+    owl_dict_insert_element(vd, newvar->name, newvar, NULL);
   }
   return 0;
 }
