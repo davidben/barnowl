@@ -711,7 +711,7 @@ void owl_variable_dict_add_variable(owl_vardict * vardict,
 
 CALLER_OWN owl_variable *owl_variable_newvar(const char *name, const char *summary, const char *description)
 {
-  owl_variable * var = g_new0(owl_variable, 1);
+  owl_variable *var = g_new0(owl_variable, 1);
   var->name = g_strdup(name);
   var->summary = g_strdup(summary);
   var->description = g_strdup(description);
