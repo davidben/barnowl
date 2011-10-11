@@ -914,10 +914,11 @@ static CALLER_OWN  char *owl_variable_invoke_tostring(const owl_variable *v,
     g_closure_invoke(v->get_fn, value_box, 1, values, NULL);
   }
   g_closure_invoke(v->get_tostring_fn,&tostring_box, 2, values, NULL);
-  /* we don't own the contents of value_box, so we don't clean it up */
-  /* caller owns the contents of tostring_box, so we don't clean it up here */
+
   ret = g_value_dup_string(&tostring_box);
   g_value_unset(&tostring_box);
+  g_value_unset(value_box);
+
   return ret;
 }
 
