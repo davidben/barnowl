@@ -382,7 +382,7 @@ sub connected {
    }
 
    $self->init;
-   $self->event (connect => $self->{peer_host}, $self->{peer_port});
+   $self->event (connect => $self->{peer_ip}, $self->{peer_port});
 }
 
 sub send_buffer_empty {

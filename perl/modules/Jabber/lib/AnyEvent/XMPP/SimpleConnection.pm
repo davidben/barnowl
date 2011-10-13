@@ -46,15 +46,16 @@ sub connect {
       and return 1;
 
    $self->{handle} = tcp_connect $host, $service, sub {
-      my ($fh, $peerhost, $peerport) = @_;
+      my ($fh, $peerip, $peerport, $retry, $peerhost) = @_;
 
       unless ($fh) {
          $self->disconnect ("Couldn't create socket to $host:$service: $!");
          return;
       }
 
-      $self->{peer_host} = $peerhost;
+      $self->{peer_ip} = $peerip;
       $self->{peer_port} = $peerport;
+      $self->{peer_host} = $peerhost;
 
       binmode $fh, ":raw";
 
@@ -65,11 +66,11 @@ sub connect {
             ($args{verify_cert} ?
              (tls_ctx => { verify => 1, verify_peername => 'xmpp' }) : ()),
             on_eof => sub {
-               $self->disconnect ("EOF on connection to $self->{peer_host}:$self->{peer_port}: $!");
+               $self->disconnect ("EOF on connection to $self->{peer_ip}:$self->{peer_port}: $!");
             },
             autocork => 1,
             on_error => sub {
-               $self->disconnect ("Error on connection to $self->{peer_host}:$self->{peer_port}: $!");
+               $self->disconnect ("Error on connection to $self->{peer_ip}:$self->{peer_port}: $!");
             },
             on_read => sub {
                my ($hdl) = @_;
@@ -130,7 +131,7 @@ sub enable_ssl {
 sub disconnect {
    my ($self, $msg) = @_;
    $self->end_sockets;
-   $self->{disconnect_cb}->($self->{peer_host}, $self->{peer_port}, $msg);
+   $self->{disconnect_cb}->($self->{peer_ip}, $self->{peer_port}, $msg);
    $self->remove_all_callbacks;
 }
 
