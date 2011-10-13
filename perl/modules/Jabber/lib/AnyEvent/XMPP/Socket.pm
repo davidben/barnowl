@@ -639,8 +639,9 @@ C<undef> in which case it gets automatically chosen to be C<SOCK_STREAM>
 unless C<$proto> is C<udp>).
 
 The callback will receive zero or more array references that contain
-C<$family, $type, $proto> for use in C<socket> and a binary
-C<$sockaddr> for use in C<connect> (or C<bind>).
+C<$family, $type, $proto> for use in C<socket>, a binary
+C<$sockaddr> for use in C<connect> (or C<bind>), and C<$host> from
+the SRV record followed.
 
 The application should try these in the order given.
 
@@ -695,7 +696,7 @@ sub resolve_sockaddr($$$$$$) {
    if ($node eq "unix/") {
       return $cb->() if $family || $service !~ /^\//; # no can do
 
-      return $cb->([AF_UNIX, defined $type ? $type : SOCK_STREAM, 0, Socket::pack_sockaddr_un $service]);
+      return $cb->([AF_UNIX, defined $type ? $type : SOCK_STREAM, 0, Socket::pack_sockaddr_un $service, undef]);
    }
 
    unless (AF_INET6) {
@@ -753,12 +754,12 @@ sub resolve_sockaddr($$$$$$) {
 
             if ($af == AF_INET && $family != 6) {
                push @res, [$idx, "ipv4", [AF_INET, $type, $proton,
-                           pack_sockaddr $port, $noden]]
+                           pack_sockaddr($port, $noden), $node]]
             }
 
             if ($af == AF_INET6 && $family != 4) {
                push @res, [$idx, "ipv6", [AF_INET6, $type, $proton,
-                           pack_sockaddr $port, $noden]]
+                           pack_sockaddr($port, $noden), $node]]
             }
          } else {
             $node =~ y/A-Z/a-z/;
@@ -769,12 +770,12 @@ sub resolve_sockaddr($$$$$$) {
             if ($family != 6) {
                $cv->begin;
                AnyEvent::DNS::a $node, sub {
-                  push @res, [$idx, "ipv4", [AF_INET , $type, $proton, pack_sockaddr $port, parse_ipv4 $_]]
+                  push @res, [$idx, "ipv4", [AF_INET , $type, $proton, pack_sockaddr($port, parse_ipv4 $_), $node]]
                      for @_;
 
                   # dns takes precedence over hosts
                   push @res,
-                     map [$idx, "ipv4", [AF_INET , $type, $proton, pack_sockaddr $port, $_]],
+                     map [$idx, "ipv4", [AF_INET , $type, $proton, pack_sockaddr($port, $_), $node]],
                         @{ $hosts->[0] }
                      unless @_;
 
@@ -786,11 +787,11 @@ sub resolve_sockaddr($$$$$$) {
             if ($family != 4) {
                $cv->begin;
                AnyEvent::DNS::aaaa $node, sub {
-                  push @res, [$idx, "ipv6", [AF_INET6, $type, $proton, pack_sockaddr $port, parse_ipv6 $_]]
+                  push @res, [$idx, "ipv6", [AF_INET6, $type, $proton, pack_sockaddr($port, parse_ipv6 $_), $node]]
                      for @_;
 
                   push @res,
-                     map [$idx + 0.5, "ipv6", [AF_INET6, $type, $proton, pack_sockaddr $port, $_]],
+                     map [$idx + 0.5, "ipv6", [AF_INET6, $type, $proton, pack_sockaddr($port, $_), $node]],
                         @{ $hosts->[1] }
                      unless @_;
 
@@ -858,14 +859,15 @@ each in turn.
 
 After the connection is established, then the C<$connect_cb> will be
 invoked with the socket file handle (in non-blocking mode) as first, and
-the peer host (as a textual IP address) and peer port as second and third
+the peer ip (as a textual IP address) and peer port as second and third
 arguments, respectively. The fourth argument is a code reference that you
 can call if, for some reason, you don't like this connection, which will
 cause C<tcp_connect> to try the next one (or call your callback without
 any arguments if there are no more connections). In most cases, you can
-simply ignore this argument.
+simply ignore this argument. The fifth argument is the peer host, possibly
+obtained from a SRV record.
 
-   $cb->($filehandle, $host, $port, $retry)
+   $cb->($filehandle, $ip, $port, $retry, $host)
 
 If the connect is unsuccessful, then the C<$connect_cb> will be invoked
 without any arguments and C<$!> will be set appropriately (with C<ENXIO>
@@ -984,7 +986,7 @@ sub tcp_connect($$$;$) {
                $connect->();
             };
 
-         my ($domain, $type, $proto, $sockaddr) = @$target;
+         my ($domain, $type, $proto, $sockaddr, $host) = @$target;
 
          # socket creation
          socket $state{fh}, $domain, $type, $proto
@@ -1013,16 +1015,16 @@ sub tcp_connect($$$;$) {
             $state{ww} = AE::io $state{fh}, 1, sub {
                # we are connected, or maybe there was an error
                if (my $sin = getpeername $state{fh}) {
-                  my ($port, $host) = unpack_sockaddr $sin;
+                  my ($port, $ip) = unpack_sockaddr $sin;
 
                   delete $state{ww}; delete $state{to};
 
                   my $guard = guard { %state = () };
 
-                  $connect->(delete $state{fh}, format_address $host, $port, sub {
+                  $connect->(delete $state{fh}, format_address $ip, $port, sub {
                      $guard->cancel;
                      $state{next}();
-                  });
+                  }, $host);
                } else {
                   if ($! == Errno::ENOTCONN) {
                      # dummy read to fetch real error code if !cygwin
