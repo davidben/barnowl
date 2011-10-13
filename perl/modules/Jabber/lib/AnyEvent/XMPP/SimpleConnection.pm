@@ -5,7 +5,7 @@ no warnings;
 use AnyEvent;
 use IO::Handle;
 use Encode;
-use AnyEvent::Socket;
+use AnyEvent::XMPP::Socket;
 use AnyEvent::Handle;
 
 =head1 NAME
