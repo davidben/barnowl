@@ -677,7 +677,7 @@ sub send_sasl_auth {
       $self->{username},
       ($self->{use_host_as_sasl_hostname}
          ? $self->{host}
-         : $self->{domain}),
+         : $self->{peer_host}),
       $self->{password}
    );
 }
