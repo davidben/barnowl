@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT([BarnOwl],[1.8dev],[bug-barnowl@mit.edu])
+AC_INIT([BarnOwl],[1.9dev],[bug-barnowl@mit.edu])
 AM_INIT_AUTOMAKE([1.7.0 -Wall -Wno-portability foreign])
 m4_ifdef([AM_SILENT_RULES],[AM_SILENT_RULES([yes])])
 
@@ -16,7 +16,7 @@ AC_ARG_WITH([stack-protector],
   [with_stack_protector=check])
 
 AS_IF([test "x$with_stack_protector" != xno],
-  [AX_C_CHECK_FLAG([-fstack-protector],[],[],
+  [AX_CHECK_COMPILE_FLAG([-fstack-protector],
     [AM_CFLAGS="$AM_CFLAGS -fstack-protector"],
     [if test "x$with_stack_protector" != xcheck; then
        AC_MSG_FAILURE([--with-stack-protector selected, but gcc does support it.])
@@ -108,8 +108,12 @@ AC_MSG_NOTICE([Adding perl LIBS ${FOO}])
 LIBS=${LIBS}\ ${FOO}
 AC_CHECK_LIB([perl], [perl_alloc],, AC_MSG_ERROR([No libperl found]))
 
+AX_PROG_PERL_MODULES([AnyEvent],,
+                     [AC_MSG_ERROR([cannot find perl module AnyEvent.])])
 AX_PROG_PERL_MODULES([Class::Accessor::Fast],,
                      [AC_MSG_ERROR([cannot find perl module Class::Accessor::Fast.])])
+AX_PROG_PERL_MODULES([Glib],,
+                     [AC_MSG_ERROR([cannot find perl module Glib.])])
 AX_PROG_PERL_MODULES([PAR],,
                      [AC_MSG_WARN([PAR.pm not found. Loadable modules will be disabled.])])
 
@@ -128,16 +132,13 @@ fi
 dnl Checks for typedefs, structures, and compiler characteristics.
 
 AX_CFLAGS_WARN_ALL([AM_CFLAGS])
-AX_C_CHECK_FLAG([-Wstrict-prototypes],[],[],[AM_CFLAGS="$AM_CFLAGS -Wstrict-prototypes"])
-AX_C_CHECK_FLAG([-Wwrite-strings],[],[],[AM_CFLAGS="$AM_CFLAGS -Wwrite-strings"])
+AX_APPEND_COMPILE_FLAGS([-Wstrict-prototypes -Wwrite-strings],[AM_CFLAGS])
 
 dnl Shut gcc up about zero-length format strings; the warning's apparently for
 dnl efficiency reasons, which is bogus for custom functions.
-AX_C_CHECK_FLAG([-Wno-format-zero-length],[],[],[AM_CFLAGS="$AM_CFLAGS -Wno-format-zero-length"])
+AX_APPEND_COMPILE_FLAGS([-Wno-format-zero-length],[AM_CFLAGS])
 
-m4_foreach([myflag],
-  [[-Wno-pointer-sign],[-Wno-empty-body],[-Wno-unused-value]],
-  [AX_C_CHECK_FLAG([myflag],[],[],[LIBFAIM_CFLAGS="$LIBFAIM_CFLAGS myflag"])])
+AX_APPEND_COMPILE_FLAGS([-Wno-pointer-sign -Wno-empty-body -Wno-unused-value],[LIBFAIM_CFLAGS])
 
 AM_CONDITIONAL([ENABLE_ZCRYPT], [test "$HAVE_DES_STRING_TO_KEY" && dnl
                                  test "$HAVE_DES_KEY_SCHED" && dnl

@@ -1,4 +1,3 @@
-#include <string.h>
 #include "owl.h"
 
 #define BOTTOM_OFFSET 1
@@ -11,7 +10,7 @@ static void owl_viewwin_set_window(owl_viewwin *v, owl_window *w);
 /* Create a viewwin.  'win' is an already initialized owl_window that
  * will be used by the viewwin
  */
-owl_viewwin *owl_viewwin_new_text(owl_window *win, const char *text)
+CALLER_OWN owl_viewwin *owl_viewwin_new_text(owl_window *win, const char *text)
 {
   owl_viewwin *v = g_new0(owl_viewwin, 1);
   owl_fmtext_init_null(&(v->fmtext));
@@ -33,7 +32,7 @@ owl_viewwin *owl_viewwin_new_text(owl_window *win, const char *text)
 /* Create a viewwin.  'win' is an already initialized owl_window that
  * will be used by the viewwin
  */
-owl_viewwin *owl_viewwin_new_fmtext(owl_window *win, const owl_fmtext *fmtext)
+CALLER_OWN owl_viewwin *owl_viewwin_new_fmtext(owl_window *win, const owl_fmtext *fmtext)
 {
   char *text;
   owl_viewwin *v = g_new0(owl_viewwin, 1);
@@ -158,8 +157,9 @@ typedef struct _owl_viewwin_search_data { /*noproto*/
   int direction;
 } owl_viewwin_search_data;
 
-static void owl_viewwin_callback_search(owl_editwin *e)
+static void owl_viewwin_callback_search(owl_editwin *e, bool success)
 {
+  if (!success) return;
   int consider_current = false;
   const char *line = owl_editwin_get_text(e);
   owl_viewwin_search_data *data = owl_editwin_get_cbdata(e);
@@ -236,7 +236,7 @@ void owl_viewwin_deactivate_editcontext(owl_context *ctx) {
   owl_viewwin_set_typwin_inactive(v);
 }
 
-owl_editwin *owl_viewwin_set_typwin_active(owl_viewwin *v, owl_history *hist) {
+CALLER_OWN owl_editwin *owl_viewwin_set_typwin_active(owl_viewwin *v, owl_history *hist) {
   int lines, cols;
   owl_editwin *cmdline;
   if (v->cmdwin)

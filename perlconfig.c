@@ -1,11 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <errno.h>
 #define OWL_PERL
 #include "owl.h"
+#include <stdio.h>
 
 extern XS(boot_BarnOwl);
 extern XS(boot_DynaLoader);
@@ -22,7 +17,7 @@ void owl_perl_xs_init(pTHX) /* noproto */
 }
 
 
-SV *owl_new_sv(const char * str)
+CALLER_OWN SV *owl_new_sv(const char * str)
 {
   SV *ret = newSVpv(str, 0);
   if (is_utf8_string((const U8 *)str, strlen(str))) {
@@ -35,7 +30,7 @@ SV *owl_new_sv(const char * str)
   return ret;
 }
 
-AV *owl_new_av(const owl_list *l, SV *(*to_sv)(const void *))
+CALLER_OWN AV *owl_new_av(const GPtrArray *l, SV *(*to_sv)(const void *))
 {
   AV *ret;
   int i;
@@ -43,18 +38,18 @@ AV *owl_new_av(const owl_list *l, SV *(*to_sv)(const void *))
 
   ret = newAV();
 
-  for (i = 0; i < owl_list_get_size(l); i++) {
-    element = owl_list_get_element(l, i);
+  for (i = 0; i < l->len; i++) {
+    element = l->pdata[i];
     av_push(ret, to_sv(element));
   }
 
   return ret;
 }
 
-HV *owl_new_hv(const owl_dict *d, SV *(*to_sv)(const void *))
+CALLER_OWN HV *owl_new_hv(const owl_dict *d, SV *(*to_sv)(const void *))
 {
   HV *ret;
-  owl_list l;
+  GPtrArray *keys;
   const char *key;
   void *element;
   int i;
@@ -62,19 +57,18 @@ HV *owl_new_hv(const owl_dict *d, SV *(*to_sv)(const void *))
   ret = newHV();
 
   /* TODO: add an iterator-like interface to owl_dict */
-  owl_list_create(&l);
-  owl_dict_get_keys(d, &l);
-  for (i = 0; i < owl_list_get_size(&l); i++) {
-    key = owl_list_get_element(&l, i);
+  keys = owl_dict_get_keys(d);
+  for (i = 0; i < keys->len; i++) {
+    key = keys->pdata[i];
     element = owl_dict_find_element(d, key);
     (void)hv_store(ret, key, strlen(key), to_sv(element), 0);
   }
-  owl_list_cleanup(&l, g_free);
+  owl_ptr_array_free(keys, g_free);
 
   return ret;
 }
 
-SV *owl_perlconfig_message2hashref(const owl_message *m)
+CALLER_OWN SV *owl_perlconfig_message2hashref(const owl_message *m)
 {
   HV *h, *stash;
   SV *hr;
@@ -96,8 +90,7 @@ SV *owl_perlconfig_message2hashref(const owl_message *m)
 #define MSG2H(h,field) (void)hv_store(h, #field, strlen(#field),        \
                                       owl_new_sv(owl_message_get_##field(m)), 0)
 
-  if (owl_message_is_type_zephyr(m)
-      && owl_message_is_direction_in(m)) {
+  if (owl_message_get_notice(m)) {
     /* Handle zephyr-specific fields... */
     AV *av_zfields;
 
@@ -114,9 +107,8 @@ SV *owl_perlconfig_message2hashref(const owl_message *m)
                    owl_new_sv(owl_zephyr_get_authstr(owl_message_get_notice(m))),0);
   }
 
-  j=owl_list_get_size(&(m->attributes));
-  for(i=0; i<j; i++) {
-    pair=owl_list_get_element(&(m->attributes), i);
+  for (i = 0; i < m->attributes->len; i++) {
+    pair = m->attributes->pdata[i];
     (void)hv_store(h, owl_pair_get_key(pair), strlen(owl_pair_get_key(pair)),
                    owl_new_sv(owl_pair_get_value(pair)),0);
   }
@@ -164,7 +156,7 @@ SV *owl_perlconfig_message2hashref(const owl_message *m)
   return hr;
 }
 
-SV *owl_perlconfig_curmessage2hashref(void)
+CALLER_OWN SV *owl_perlconfig_curmessage2hashref(void)
 {
   int curmsg;
   const owl_view *v;
@@ -179,10 +171,8 @@ SV *owl_perlconfig_curmessage2hashref(void)
 /* XXX TODO: Messages should round-trip properly between
    message2hashref and hashref2message. Currently we lose
    zephyr-specific properties stored in the ZNotice_t
-
-   This has been somewhat addressed, but is still not lossless.
  */
-owl_message * owl_perlconfig_hashref2message(SV *msg)
+CALLER_OWN owl_message *owl_perlconfig_hashref2message(SV *msg)
 {
   owl_message * m;
   HE * ent;
@@ -226,31 +216,12 @@ owl_message * owl_perlconfig_hashref2message(SV *msg)
     if(!owl_message_get_attribute_value(m, "adminheader"))
       owl_message_set_attribute(m, "adminheader", "");
   }
-#ifdef HAVE_LIBZEPHYR
-  if (owl_message_is_type_zephyr(m)) {
-    ZNotice_t *n = &(m->notice);
-    n->z_kind = ACKED;
-    n->z_port = 0;
-    n->z_auth = ZAUTH_NO;
-    n->z_checked_auth = 0;
-    n->z_class = zstr(owl_message_get_class(m));
-    n->z_class_inst = zstr(owl_message_get_instance(m));
-    n->z_opcode = zstr(owl_message_get_opcode(m));
-    n->z_sender = zstr(owl_message_get_sender(m));
-    n->z_recipient = zstr(owl_message_get_recipient(m));
-    n->z_default_format = zstr("[zephyr created from perl]");
-    n->z_multinotice = zstr("[zephyr created from perl]");
-    n->z_num_other_fields = 0;
-    n->z_message = g_strdup_printf("%s%c%s", owl_message_get_zsig(m), '\0', owl_message_get_body(m));
-    n->z_message_len = strlen(owl_message_get_zsig(m)) + strlen(owl_message_get_body(m)) + 1;
-  }
-#endif
   return m;
 }
 
 /* Calls in a scalar context, passing it a hash reference.
    If return value is non-null, caller must free. */
-char *owl_perlconfig_call_with_message(const char *subname, const owl_message *m)
+CALLER_OWN char *owl_perlconfig_call_with_message(const char *subname, const owl_message *m)
 {
   dSP ;
   int count;
@@ -299,7 +270,7 @@ char *owl_perlconfig_call_with_message(const char *subname, const owl_message *m
 /* Calls a method on a perl object representing a message.
    If the return value is non-null, the caller must free it.
  */
-char * owl_perlconfig_message_call_method(const owl_message *m, const char *method, int argc, const char ** argv)
+CALLER_OWN char *owl_perlconfig_message_call_method(const owl_message *m, const char *method, int argc, const char **argv)
 {
   dSP;
   unsigned int count, i;
@@ -348,8 +319,8 @@ char * owl_perlconfig_message_call_method(const owl_message *m, const char *meth
   return out;
 }
 
-
-char *owl_perlconfig_initperl(const char * file, int *Pargc, char ***Pargv, char *** Penv)
+/* caller must free result, if not NULL */
+CALLER_OWN char *owl_perlconfig_initperl(const char *file, int *Pargc, char ***Pargv, char ***Penv)
 {
   int ret;
   PerlInterpreter *p;
@@ -407,7 +378,7 @@ char *owl_perlconfig_initperl(const char * file, int *Pargc, char ***Pargv, char
 
   /* Add the system lib path to @INC */
   inc = get_av("INC", 0);
-  path = g_strdup_printf("%s/lib", owl_get_datadir());
+  path = g_build_filename(owl_get_datadir(), "lib", NULL);
   av_unshift(inc, 1);
   av_store(inc, 0, owl_new_sv(path));
   g_free(path);
@@ -435,7 +406,7 @@ int owl_perlconfig_is_function(const char *fn) {
 }
 
 /* caller is responsible for freeing returned string */
-char *owl_perlconfig_execute(const char *line)
+CALLER_OWN char *owl_perlconfig_execute(const char *line)
 {
   STRLEN len;
   SV *response;
@@ -504,7 +475,8 @@ void owl_perlconfig_new_command(const char *name)
   LEAVE;
 }
 
-char *owl_perlconfig_perlcmd(const owl_cmd *cmd, int argc, const char *const *argv)
+/* caller must free the result */
+CALLER_OWN char *owl_perlconfig_perlcmd(const owl_cmd *cmd, int argc, const char *const *argv)
 {
   int i, count;
   char * ret = NULL;
@@ -547,7 +519,7 @@ void owl_perlconfig_cmd_cleanup(owl_cmd *cmd)
   SvREFCNT_dec(cmd->cmd_perl);
 }
 
-void owl_perlconfig_edit_callback(owl_editwin *e)
+void owl_perlconfig_edit_callback(owl_editwin *e, bool success)
 {
   SV *cb = owl_editwin_get_cbdata(e);
   SV *text;
@@ -564,6 +536,7 @@ void owl_perlconfig_edit_callback(owl_editwin *e)
 
   PUSHMARK(SP);
   XPUSHs(sv_2mortal(text));
+  XPUSHs(sv_2mortal(newSViv(success)));
   PUTBACK;
   
   call_sv(cb, G_DISCARD|G_EVAL);

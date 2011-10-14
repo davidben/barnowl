@@ -1,5 +1,3 @@
-#include <ctype.h>
-#include <string.h>
 #include "owl.h"
 
 static const struct _owl_keypress_specialmap {
@@ -128,7 +126,7 @@ static const struct _owl_keypress_specialmap {
 #define OWL_CTRL(key) ((key)&037)
 /* OWL_META is definied in owl.h */
 
-char *owl_keypress_tostring(int j, int esc)
+CALLER_OWN char *owl_keypress_tostring(int j, int esc)
 {
   GString *kb;
   const struct _owl_keypress_specialmap *sm;

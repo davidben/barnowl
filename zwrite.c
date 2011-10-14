@@ -1,27 +1,46 @@
-#include <string.h>
-#include <pwd.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include "owl.h"
 
-owl_zwrite *owl_zwrite_new(const char *line)
+CALLER_OWN owl_zwrite *owl_zwrite_new_from_line(const char *line)
 {
   owl_zwrite *z = g_new(owl_zwrite, 1);
-  if (owl_zwrite_create_from_line(z, line) < 0) {
-    owl_zwrite_delete(z);
+  if (owl_zwrite_create_from_line(z, line) != 0) {
+    g_free(z);
     return NULL;
   }
   return z;
 }
 
-int owl_zwrite_create_from_line(owl_zwrite *z, const char *line)
+CALLER_OWN owl_zwrite *owl_zwrite_new(int argc, const char *const *argv)
 {
-  int argc, badargs, myargc;
-  char **argv;
-  const char *const *myargv;
-  char *msg = NULL;
+  owl_zwrite *z = g_new(owl_zwrite, 1);
+  if (owl_zwrite_create(z, argc, argv) != 0) {
+    g_free(z);
+    return NULL;
+  }
+  return z;
+}
 
-  badargs=0;
+G_GNUC_WARN_UNUSED_RESULT int owl_zwrite_create_from_line(owl_zwrite *z, const char *line)
+{
+  int argc;
+  char **argv;
+  int ret;
+
+  /* parse the command line for options */
+  argv = owl_parseline(line, &argc);
+  if (argc < 0) {
+    owl_function_error("Unbalanced quotes in zwrite");
+    return -1;
+  }
+  ret = owl_zwrite_create(z, argc, strs(argv));
+  g_strfreev(argv);
+  return ret;
+}
+
+G_GNUC_WARN_UNUSED_RESULT int owl_zwrite_create(owl_zwrite *z, int argc, const char *const *argv)
+{
+  int badargs = 0;
+  char *msg = NULL;
   
   /* start with null entries */
   z->cmd=NULL;
@@ -33,105 +52,97 @@ int owl_zwrite_create_from_line(owl_zwrite *z, const char *line)
   z->message=NULL;
   z->cc=0;
   z->noping=0;
-  owl_list_create(&(z->recips));
-  z->zwriteline = g_strdup(line);
+  z->recips = g_ptr_array_new();
+  z->zwriteline = owl_argv_quote(argc, argv);
 
-  /* parse the command line for options */
-  argv=owl_parseline(line, &argc);
-  myargv=strs(argv);
-  if (argc<0) {
-    owl_function_error("Unbalanced quotes in zwrite");
-    return(-1);
+  if (argc && *(argv[0])!='-') {
+    z->cmd=g_strdup(argv[0]);
+    argc--;
+    argv++;
   }
-  myargc=argc;
-  if (myargc && *(myargv[0])!='-') {
-    z->cmd=g_strdup(myargv[0]);
-    myargc--;
-    myargv++;
-  }
-  while (myargc) {
-    if (!strcmp(myargv[0], "-c")) {
-      if (myargc<2) {
+  while (argc) {
+    if (!strcmp(argv[0], "-c")) {
+      if (argc<2) {
 	badargs=1;
 	break;
       }
-      z->class=owl_validate_utf8(myargv[1]);
-      myargv+=2;
-      myargc-=2;
-    } else if (!strcmp(myargv[0], "-i")) {
-      if (myargc<2) {
+      z->class=owl_validate_utf8(argv[1]);
+      argv+=2;
+      argc-=2;
+    } else if (!strcmp(argv[0], "-i")) {
+      if (argc<2) {
 	badargs=1;
 	break;
       }
-      z->inst=owl_validate_utf8(myargv[1]);
-      myargv+=2;
-      myargc-=2;
-    } else if (!strcmp(myargv[0], "-r")) {
-      if (myargc<2) {
+      z->inst=owl_validate_utf8(argv[1]);
+      argv+=2;
+      argc-=2;
+    } else if (!strcmp(argv[0], "-r")) {
+      if (argc<2) {
 	badargs=1;
 	break;
       }
-      z->realm=owl_validate_utf8(myargv[1]);
-      myargv+=2;
-      myargc-=2;
-    } else if (!strcmp(myargv[0], "-s")) {
-      if (myargc<2) {
+      z->realm=owl_validate_utf8(argv[1]);
+      argv+=2;
+      argc-=2;
+    } else if (!strcmp(argv[0], "-s")) {
+      if (argc<2) {
 	badargs=1;
 	break;
       }
-      z->zsig=owl_validate_utf8(myargv[1]);
-      myargv+=2;
-      myargc-=2;
-    } else if (!strcmp(myargv[0], "-O")) {
-      if (myargc<2) {
+      z->zsig=owl_validate_utf8(argv[1]);
+      argv+=2;
+      argc-=2;
+    } else if (!strcmp(argv[0], "-O")) {
+      if (argc<2) {
 	badargs=1;
 	break;
       }
-      z->opcode=owl_validate_utf8(myargv[1]);
-      myargv+=2;
-      myargc-=2;
-    } else if (!strcmp(myargv[0], "-m")) {
-      if (myargc<2) {
+      z->opcode=owl_validate_utf8(argv[1]);
+      argv+=2;
+      argc-=2;
+    } else if (!strcmp(argv[0], "-m")) {
+      if (argc<2) {
 	badargs=1;
 	break;
       }
       /* we must already have users or a class or an instance */
-      if (owl_list_get_size(&(z->recips))<1 && (!z->class) && (!z->inst)) {
+      if (z->recips->len < 1 && (!z->class) && (!z->inst)) {
 	badargs=1;
 	break;
       }
 
       /* Once we have -m, gobble up everything else on the line */
-      myargv++;
-      myargc--;
-      msg = g_strjoinv(" ", (char**)myargv);
+      argv++;
+      argc--;
+      msg = g_strjoinv(" ", (char**)argv);
       break;
-    } else if (!strcmp(myargv[0], "-C")) {
+    } else if (!strcmp(argv[0], "-C")) {
       z->cc=1;
-      myargv++;
-      myargc--;
-    } else if (!strcmp(myargv[0], "-n")) {
+      argv++;
+      argc--;
+    } else if (!strcmp(argv[0], "-n")) {
       z->noping=1;
-      myargv++;
-      myargc--;
+      argv++;
+      argc--;
     } else {
       /* anything unattached is a recipient */
-      owl_list_append_element(&(z->recips), owl_validate_utf8(myargv[0]));
-      myargv++;
-      myargc--;
+      g_ptr_array_add(z->recips, owl_validate_utf8(argv[0]));
+      argv++;
+      argc--;
     }
   }
 
-  g_strfreev(argv);
-
   if (badargs) {
+    owl_zwrite_cleanup(z);
     return(-1);
   }
 
   if (z->class == NULL &&
       z->inst == NULL &&
-      owl_list_get_size(&(z->recips))==0) {
+      z->recips->len == 0) {
     owl_function_error("You must specify a recipient for zwrite");
+    owl_zwrite_cleanup(z);
     return(-1);
   }
 
@@ -161,7 +172,7 @@ void owl_zwrite_populate_zsig(owl_zwrite *z)
 
 void owl_zwrite_send_ping(const owl_zwrite *z)
 {
-  int i, j;
+  int i;
   char *to;
 
   if (z->noping) return;
@@ -172,8 +183,7 @@ void owl_zwrite_send_ping(const owl_zwrite *z)
 
   /* if there are no recipients we won't send a ping, which
      is what we want */
-  j=owl_list_get_size(&(z->recips));
-  for (i=0; i<j; i++) {
+  for (i = 0; i < z->recips->len; i++) {
     to = owl_zwrite_get_recip_n_with_realm(z, i);
     send_ping(to, z->class, z->inst);
     g_free(to);
@@ -190,16 +200,15 @@ void owl_zwrite_set_message_raw(owl_zwrite *z, const char *msg)
 
 void owl_zwrite_set_message(owl_zwrite *z, const char *msg)
 {
-  int i, j;
+  int i;
   GString *message;
   char *tmp = NULL, *tmp2;
 
   g_free(z->message);
 
-  j=owl_list_get_size(&(z->recips));
-  if (j>0 && z->cc) {
+  if (z->recips->len > 0 && z->cc) {
     message = g_string_new("CC: ");
-    for (i=0; i<j; i++) {
+    for (i = 0; i < z->recips->len; i++) {
       tmp = owl_zwrite_get_recip_n_with_realm(z, i);
       g_string_append_printf(message, "%s ", tmp);
       g_free(tmp);
@@ -232,14 +241,13 @@ int owl_zwrite_is_message_set(const owl_zwrite *z)
 
 int owl_zwrite_send_message(const owl_zwrite *z)
 {
-  int i, j, ret = 0;
+  int i, ret = 0;
   char *to = NULL;
 
   if (z->message==NULL) return(-1);
 
-  j=owl_list_get_size(&(z->recips));
-  if (j>0) {
-    for (i=0; i<j; i++) {
+  if (z->recips->len > 0) {
+    for (i = 0; i < z->recips->len; i++) {
       to = owl_zwrite_get_recip_n_with_realm(z, i);
       ret = send_zephyr(z->opcode, z->zsig, z->class, z->inst, to, z->message);
       /* Abort on the first error, to match the zwrite binary. */
@@ -260,8 +268,8 @@ int owl_zwrite_create_and_send_from_line(const char *cmd, const char *msg)
 {
   owl_zwrite z;
   int rv;
-  rv=owl_zwrite_create_from_line(&z, cmd);
-  if (rv) return(rv);
+  rv = owl_zwrite_create_from_line(&z, cmd);
+  if (rv != 0) return rv;
   if (!owl_zwrite_is_message_set(&z)) {
     owl_zwrite_set_message(&z, msg);
   }
@@ -311,16 +319,16 @@ void owl_zwrite_set_zsig(owl_zwrite *z, const char *zsig)
 
 int owl_zwrite_get_numrecips(const owl_zwrite *z)
 {
-  return(owl_list_get_size(&(z->recips)));
+  return z->recips->len;
 }
 
 const char *owl_zwrite_get_recip_n(const owl_zwrite *z, int n)
 {
-  return(owl_list_get_element(&(z->recips), n));
+  return z->recips->pdata[n];
 }
 
 /* Caller must free the result. */
-char *owl_zwrite_get_recip_n_with_realm(const owl_zwrite *z, int n)
+CALLER_OWN char *owl_zwrite_get_recip_n_with_realm(const owl_zwrite *z, int n)
 {
   if (z->realm[0]) {
     return g_strdup_printf("%s@%s", owl_zwrite_get_recip_n(z, n), z->realm);
@@ -332,13 +340,12 @@ char *owl_zwrite_get_recip_n_with_realm(const owl_zwrite *z, int n)
 int owl_zwrite_is_personal(const owl_zwrite *z)
 {
   /* return true if at least one of the recipients is personal */
-  int i, j;
-  char *foo;
+  int i;
+  char *recip;
 
-  j=owl_list_get_size(&(z->recips));
-  for (i=0; i<j; i++) {
-    foo=owl_list_get_element(&(z->recips), i);
-    if (foo[0]!='@') return(1);
+  for (i = 0; i < z->recips->len; i++) {
+    recip = z->recips->pdata[i];
+    if (recip[0] != '@') return 1;
   }
   return(0);
 }
@@ -351,7 +358,7 @@ void owl_zwrite_delete(owl_zwrite *z)
 
 void owl_zwrite_cleanup(owl_zwrite *z)
 {
-  owl_list_cleanup(&(z->recips), &g_free);
+  owl_ptr_array_free(z->recips, g_free);
   g_free(z->cmd);
   g_free(z->zwriteline);
   g_free(z->class);
@@ -369,7 +376,7 @@ void owl_zwrite_cleanup(owl_zwrite *z)
  *
  * If not a CC, only the recip_index'th user will be replied to.
  */
-char *owl_zwrite_get_replyline(const owl_zwrite *z, int recip_index)
+CALLER_OWN char *owl_zwrite_get_replyline(const owl_zwrite *z, int recip_index)
 {
   /* Match ordering in zwrite help. */
   GString *buf = g_string_new("");
@@ -402,13 +409,13 @@ char *owl_zwrite_get_replyline(const owl_zwrite *z, int recip_index)
     owl_string_append_quoted_arg(buf, z->opcode);
   }
   if (z->cc) {
-    for (i = 0; i < owl_list_get_size(&(z->recips)); i++) {
+    for (i = 0; i < z->recips->len; i++) {
       g_string_append_c(buf, ' ');
-      owl_string_append_quoted_arg(buf, owl_list_get_element(&(z->recips), i));
+      owl_string_append_quoted_arg(buf, z->recips->pdata[i]);
     }
-  } else if (recip_index < owl_list_get_size(&(z->recips))) {
+  } else if (recip_index < z->recips->len) {
     g_string_append_c(buf, ' ');
-    owl_string_append_quoted_arg(buf, owl_list_get_element(&(z->recips), recip_index));
+    owl_string_append_quoted_arg(buf, z->recips->pdata[recip_index]);
   }
 
   return g_string_free(buf, false);

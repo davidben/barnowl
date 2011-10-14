@@ -1,7 +1,5 @@
 #include "owl.h"
 
-#include <assert.h>
-
 struct _owl_window { /*noproto*/
   GObject object;
   /* hierarchy information */
@@ -442,14 +440,41 @@ static void _owl_window_redraw(owl_window *w)
   w->dirty = 0;
 }
 
+static bool _owl_window_is_subtree_dirty(owl_window *w)
+{
+  owl_window *child;
+
+  if (w->dirty)
+    return true;
+  for (child = w->child;
+       child != NULL;
+       child = child->next) {
+    if (child->dirty_subtree)
+      return true;
+  }
+  return false;
+}
+
 static void _owl_window_redraw_subtree(owl_window *w)
 {
   FuncOneArg ptr = (FuncOneArg)_owl_window_redraw_subtree;
+
   if (!w->dirty_subtree)
     return;
+
   _owl_window_redraw(w);
   owl_window_children_foreach(w, first_arg_only, &ptr);
-  w->dirty_subtree = 0;
+
+  /* Clear the dirty_subtree bit, unless a child doesn't have it
+   * cleared because we dirtied a window in redraw. Dirtying a
+   * non-descendant window during a redraw handler is
+   * discouraged. Redraw will not break, but it is undefined whether
+   * the dirty is delayed to the next event loop iteration. */
+  if (_owl_window_is_subtree_dirty(w)) {
+    owl_function_debugmsg("subtree still dirty after one iteration!");
+  } else {
+    w->dirty_subtree = 0;
+  }
 }
 
 /*
@@ -568,7 +593,8 @@ static GSourceFuncs redraw_funcs = {
   NULL
 };
 
-GSource *owl_window_redraw_source_new(void) {
+CALLER_OWN GSource *owl_window_redraw_source_new(void)
+{
   GSource *source;
   source = g_source_new(&redraw_funcs, sizeof(GSource));
   /* TODO: priority?? */

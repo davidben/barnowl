@@ -1,14 +1,7 @@
 #include "owl.h"
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <ctype.h>
 #include <pwd.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <assert.h>
 #include <stdarg.h>
-#include <glib.h>
 #include <glib/gstdio.h>
 #include <glib-object.h>
 
@@ -31,77 +24,90 @@ const char *skiptokens(const char *buff, int n) {
   return buff;
 }
 
+CALLER_OWN char *owl_util_homedir_for_user(const char *name)
+{
+  int err;
+  struct passwd pw_buf;
+  struct passwd *pw;
+
+  char *pw_strbuf, *ret;
+  long pw_strbuf_len = sysconf(_SC_GETPW_R_SIZE_MAX);
+  if (pw_strbuf_len < 0) {
+    /* If we really hate ourselves, we can be fancy and loop until we stop
+     * getting ERANGE. For now just pick a random number. */
+    owl_function_error("owl_util_homedir_for_user: Could not get _SC_GETPW_R_SIZE_MAX");
+    pw_strbuf_len = 16384;
+  }
+  pw_strbuf = g_new0(char, pw_strbuf_len);
+  err = getpwnam_r(name, &pw_buf, pw_strbuf, pw_strbuf_len, &pw);
+  if (err) {
+    owl_function_error("getpwuid_r: %s", strerror(err));
+    /* Fall through; pw will be NULL. */
+  }
+  ret = pw ? g_strdup(pw->pw_dir) : NULL;
+  g_free(pw_strbuf);
+  return ret;
+}
+
 /* Return a "nice" version of the path.  Tilde expansion is done, and
  * duplicate slashes are removed.  Caller must free the return.
  */
-char *owl_util_makepath(const char *in)
+CALLER_OWN char *owl_util_makepath(const char *in)
 {
-  int i, j, x;
-  char *out, user[MAXPATHLEN];
-  struct passwd *pw;
+  char *out;
+  int i, j;
+  if (in[0] == '~') {
+    /* Attempt tilde-expansion of the first component. Get the
+       tilde-prefix, which goes up to the next slash. */
+    const char *end = strchr(in + 1, '/');
+    if (end == NULL)
+      end = in + strlen(in);
 
-  out=g_new(char, MAXPATHLEN+1);
-  out[0]='\0';
-  j=strlen(in);
-  x=0;
-  for (i=0; i<j; i++) {
-    if (in[i]=='~') {
-      if ( (i==(j-1)) ||          /* last character */
-	   (in[i+1]=='/') ) {     /* ~/ */
-	/* use my homedir */
-	pw=getpwuid(getuid());
-	if (!pw) {
-	  out[x]=in[i];
-	} else {
-	  out[x]='\0';
-	  strcat(out, pw->pw_dir);
-	  x+=strlen(pw->pw_dir);
-	}
-      } else {
-	/* another user homedir */
-	int a, b;
-	b=0;
-	for (a=i+1; i<j; a++) {
-	  if (in[a]==' ' || in[a]=='/') {
-	    break;
-	  } else {
-	    user[b]=in[a];
-	    i++;
-	    b++;
-	  }
-	}
-	user[b]='\0';
-	pw=getpwnam(user);
-	if (!pw) {
-	  out[x]=in[i];
-	} else {
-	  out[x]='\0';
-	  strcat(out, pw->pw_dir);
-	  x+=strlen(pw->pw_dir);
-	}
-      }
-    } else if (in[i]=='/') {
-      /* check for a double / */
-      if (i<(j-1) && (in[i+1]=='/')) {
-	/* do nothing */
-      } else {
-	out[x]=in[i];
-	x++;
-      }
+    /* Patch together a new path. Replace the ~ and tilde-prefix with
+       the homedir, if available. */
+    if (end == in + 1) {
+      /* My home directory. Use the one in owl_global for consistency with
+       * owl_zephyr_dotfile. */
+      out = g_strconcat(owl_global_get_homedir(&g), end, NULL);
     } else {
-      out[x]=in[i];
-      x++;
+      /* Someone else's home directory. */
+      char *user = g_strndup(in + 1, end - (in + 1));
+      char *home = owl_util_homedir_for_user(user);
+      if (home) {
+        out = g_strconcat(home, end, NULL);
+      } else {
+        out = g_strdup(in);
+      }
+      g_free(home);
+      g_free(user);
     }
+  } else {
+    out = g_strdup(in);
   }
-  out[x]='\0';
-  return(out);
+
+  /* And a quick pass to remove duplicate slashes. */
+  for (i = j = 0; out[i] != '\0'; i++) {
+    if (out[i] != '/' || i == 0 || out[i-1] != '/')
+      out[j++] = out[i];
+  }
+  out[j] = '\0';
+  return out;
+}
+
+void owl_ptr_array_free(GPtrArray *array, GDestroyNotify element_free_func)
+{
+  /* TODO: when we move to requiring glib 2.22+, use
+   * g_ptr_array_new_with_free_func instead. */
+  if (element_free_func)
+    g_ptr_array_foreach(array, (GFunc)element_free_func, NULL);
+  g_ptr_array_free(array, true);
 }
 
 /* Break a command line up into argv, argc.  The caller must free
    the returned values with g_strfreev.  If there is an error argc will be set
    to -1, argv will be NULL and the caller does not need to free anything. The
    returned vector is NULL-terminated. */
-char **owl_parseline(const char *line, int *argc)
+CALLER_OWN char **owl_parseline(const char *line, int *argc)
 {
   GPtrArray *argv;
   int i, len, between=1;
@@ -169,10 +175,7 @@ char **owl_parseline(const char *line, int *argc)
 
   /* check for unbalanced quotes */
   if (quote!='\0') {
-    /* TODO: when we move to requiring glib 2.22+, use
-     * g_ptr_array_new_with_free_func. */
-    g_ptr_array_foreach(argv, (GFunc)g_free, NULL);
-    g_ptr_array_free(argv, true);
+    owl_ptr_array_free(argv, g_free);
     if (argc) *argc = -1;
     return(NULL);
   }
@@ -214,7 +217,7 @@ void owl_string_append_quoted_arg(GString *buf, const char *arg)
 
 /*
  * Appends 'tmpl' to 'buf', replacing any instances of '%q' with arguments from
- * the varargs provided, quoting them to be safe for placing in a barnowl
+ * the varargs provided, quoting them to be safe for placing in a BarnOwl
  * command line.
  */
 void owl_string_appendf_quoted(GString *buf, const char *tmpl, ...)
@@ -244,7 +247,7 @@ void owl_string_vappendf_quoted(GString *buf, const char *tmpl, va_list ap)
   g_string_append(buf, last);
 }
 
-char *owl_string_build_quoted(const char *tmpl, ...)
+CALLER_OWN char *owl_string_build_quoted(const char *tmpl, ...)
 {
   GString *buf = g_string_new("");
   va_list ap;
@@ -256,15 +259,29 @@ char *owl_string_build_quoted(const char *tmpl, ...)
 
 /* Returns a quoted version of arg suitable for placing in a
  * command-line. Result should be freed with g_free. */
-char *owl_arg_quote(const char *arg)
+CALLER_OWN char *owl_arg_quote(const char *arg)
 {
-  GString *buf = g_string_new("");;
+  GString *buf = g_string_new("");
   owl_string_append_quoted_arg(buf, arg);
   return g_string_free(buf, false);
 }
 
+/* Returns a quoted version of argv. owl_parseline on the result should give
+ * back the input. */
+CALLER_OWN char *owl_argv_quote(int argc, const char *const *argv)
+{
+  int i;
+  GString *buf = g_string_new("");
+  for (i = 0; i < argc; i++) {
+    if (i > 0)
+      g_string_append_c(buf, ' ');
+    owl_string_append_quoted_arg(buf, argv[i]);
+  }
+  return g_string_free(buf, false);
+}
+
 /* caller must free the return */
-char *owl_util_minutes_to_timestr(int in)
+CALLER_OWN char *owl_util_format_minutes(int in)
 {
   int days, hours;
   long run;
@@ -283,6 +300,19 @@ char *owl_util_minutes_to_timestr(int in)
     out=g_strdup_printf("    %2.2i:%2.2li", hours, run);
   }
   return(out);
+}
+
+CALLER_OWN char *owl_util_format_time(const struct tm *time)
+{
+  /* 32 chosen for first attempt because timestr will end up being
+   * something like "Www Mmm dd hh:mm:ss AM yyyy UTC\0" */ 
+  size_t timestr_size = 16;
+  char *timestr = NULL;
+  do {
+    timestr_size *= 2;
+    timestr = g_renew(char, timestr, timestr_size);
+  } while (strftime(timestr, timestr_size, "%c", time) == 0);
+  return timestr;
 }
 
 /* These are in order of their value in owl.h */
@@ -330,7 +360,7 @@ const char *owl_util_color_to_string(int color)
 }
 
 /* Get the default tty name.  Caller must free the return */
-char *owl_util_get_default_tty(void)
+CALLER_OWN char *owl_util_get_default_tty(void)
 {
   const char *tmp;
   char *out;
@@ -352,7 +382,7 @@ char *owl_util_get_default_tty(void)
 /* strip leading and trailing new lines.  Caller must free the
  * return.
  */
-char *owl_util_stripnewlines(const char *in)
+CALLER_OWN char *owl_util_stripnewlines(const char *in)
 {
   
   char  *tmp, *ptr1, *ptr2, *out;
@@ -383,7 +413,7 @@ char *owl_util_stripnewlines(const char *in)
  *
  * Error conditions are the same as g_file_read_link.
  */
-gchar *owl_util_recursive_resolve_link(const char *filename)
+CALLER_OWN gchar *owl_util_recursive_resolve_link(const char *filename)
 {
   gchar *last_path = g_strdup(filename);
   GError *err = NULL;
@@ -402,10 +432,7 @@ gchar *owl_util_recursive_resolve_link(const char *filename)
      * is racy. Whatever. */
     if (!g_path_is_absolute(link_path)) {
       char *last_dir = g_path_get_dirname(last_path);
-      char *tmp = g_build_path(G_DIR_SEPARATOR_S,
-			       last_dir,
-			       link_path,
-			       NULL);
+      char *tmp = g_build_filename(last_dir, link_path, NULL);
       g_free(last_dir);
       g_free(link_path);
       link_path = tmp;
@@ -510,7 +537,7 @@ int owl_util_file_deleteline(const char *filename, const char *line, int backup)
    leading `un' or trailing `.d'.
    The caller is responsible for freeing the allocated string.
 */
-char * owl_util_baseclass(const char * class)
+CALLER_OWN char *owl_util_baseclass(const char *class)
 {
   char *start, *end;
 
@@ -545,8 +572,8 @@ const char * owl_get_bindir(void)
 }
 
 /* Strips format characters from a valid utf-8 string. Returns the
-   empty string if 'in' does not validate. */
-char * owl_strip_format_chars(const char *in)
+   empty string if 'in' does not validate.  Caller must free the return. */
+CALLER_OWN char *owl_strip_format_chars(const char *in)
 {
   char *r;
   if (g_utf8_validate(in, -1, NULL)) {
@@ -583,8 +610,9 @@ char * owl_strip_format_chars(const char *in)
  * the caller to specify an alternative in the future. We also strip
  * out characters in Unicode Plane 16, as we use that plane internally
  * for formatting.
+ * Caller must free the return.
  */
-char * owl_validate_or_convert(const char *in)
+CALLER_OWN char *owl_validate_or_convert(const char *in)
 {
   if (g_utf8_validate(in, -1, NULL)) {
     return owl_strip_format_chars(in);
@@ -598,8 +626,9 @@ char * owl_validate_or_convert(const char *in)
 /*
  * Validate 'in' as UTF-8, and either return a copy of it, or an empty
  * string if it is invalid utf-8.
+ * Caller must free the return.
  */
-char * owl_validate_utf8(const char *in)
+CALLER_OWN char *owl_validate_utf8(const char *in)
 {
   char *out;
   if (g_utf8_validate(in, -1, NULL)) {
@@ -631,7 +660,8 @@ int owl_util_can_break_after(gunichar c)
   return 0;
 }
 
-char *owl_escape_highbit(const char *str)
+/* caller must free the return */
+CALLER_OWN char *owl_escape_highbit(const char *str)
 {
   GString *out = g_string_new("");
   unsigned char c;
@@ -694,7 +724,7 @@ int owl_getline_chomp(char **s, FILE *fp)
 }
 
 /* Read the rest of the input available in fp into a string. */
-char *owl_slurp(FILE *fp)
+CALLER_OWN char *owl_slurp(FILE *fp)
 {
   char *buf = NULL;
   char *p;

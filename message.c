@@ -1,15 +1,7 @@
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <time.h>
 #include "owl.h"
 #include "filterproc.h"
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
 static owl_fmtext_cache fmtext_cache[OWL_FMTEXT_CACHE_SIZE];
 static owl_fmtext_cache * fmtext_cache_next = fmtext_cache;
@@ -41,13 +33,17 @@ void owl_message_init(owl_message *m)
   owl_message_set_direction_none(m);
   m->delete=0;
 
+#ifdef HAVE_LIBZEPHYR
+  m->has_notice = false;
+#endif
+
   owl_message_set_hostname(m, "");
-  owl_list_create(&(m->attributes));
+  m->attributes = g_ptr_array_new();
   
   /* save the time */
-  m->time=time(NULL);
-  m->timestr=g_strdup(ctime(&(m->time)));
-  m->timestr[strlen(m->timestr)-1]='\0';
+  m->time = time(NULL);
+  m->timestr = g_strdup(ctime(&m->time));
+  m->timestr[strlen(m->timestr)-1] = '\0';
 
   m->fmtext = NULL;
 }
@@ -57,15 +53,14 @@ void owl_message_init(owl_message *m)
  */
 void owl_message_set_attribute(owl_message *m, const char *attrname, const char *attrvalue)
 {
-  int i, j;
+  int i;
   owl_pair *p = NULL, *pair = NULL;
 
   attrname = g_intern_string(attrname);
 
   /* look for an existing pair with this key, */
-  j=owl_list_get_size(&(m->attributes));
-  for (i=0; i<j; i++) {
-    p=owl_list_get_element(&(m->attributes), i);
+  for (i = 0; i < m->attributes->len; i++) {
+    p = m->attributes->pdata[i];
     if (owl_pair_get_key(p) == attrname) {
       g_free(owl_pair_get_value(p));
       pair = p;
@@ -76,7 +71,7 @@ void owl_message_set_attribute(owl_message *m, const char *attrname, const char 
   if(pair ==  NULL) {
     pair = g_new(owl_pair, 1);
     owl_pair_create(pair, attrname, NULL);
-    owl_list_append_element(&(m->attributes), pair);
+    g_ptr_array_add(m->attributes, pair);
   }
   owl_pair_set_value(pair, owl_validate_or_convert(attrvalue));
 }
@@ -86,7 +81,7 @@ void owl_message_set_attribute(owl_message *m, const char *attrname, const char 
  */
 const char *owl_message_get_attribute_value(const owl_message *m, const char *attrname)
 {
-  int i, j;
+  int i;
   owl_pair *p;
   GQuark quark;
 
@@ -96,9 +91,8 @@ const char *owl_message_get_attribute_value(const owl_message *m, const char *at
     return NULL;
   attrname = g_quark_to_string(quark);
 
-  j=owl_list_get_size(&(m->attributes));
-  for (i=0; i<j; i++) {
-    p=owl_list_get_element(&(m->attributes), i);
+  for (i = 0; i < m->attributes->len; i++) {
+    p = m->attributes->pdata[i];
     if (owl_pair_get_key(p) == attrname) {
       return(owl_pair_get_value(p));
     }
@@ -117,21 +111,22 @@ const char *owl_message_get_attribute_value(const owl_message *m, const char *at
  * function to indent fmtext.
  */
 void owl_message_attributes_tofmtext(const owl_message *m, owl_fmtext *fm) {
-  int i, j;
+  int i;
   owl_pair *p;
   char *buff, *tmpbuff;
 
   owl_fmtext_init_null(fm);
 
-  j=owl_list_get_size(&(m->attributes));
-  for (i=0; i<j; i++) {
-    p=owl_list_get_element(&(m->attributes), i);
+  for (i = 0; i < m->attributes->len; i++) {
+    p = m->attributes->pdata[i];
 
-    tmpbuff = g_strdup(owl_pair_get_value(p));
-    g_strdelimit(tmpbuff, "\n", '~');
-    g_strdelimit(tmpbuff, "\r", '!');
-    buff = g_strdup_printf("  %-15.15s: %s\n", owl_pair_get_key(p), tmpbuff);
-    g_free(tmpbuff);
+    buff = g_strdup(owl_pair_get_value(p));
+    if (buff) {
+      tmpbuff = owl_text_indent(buff, 19, false);
+      g_free(buff);
+      buff = g_strdup_printf("  %-15.15s: %s\n", owl_pair_get_key(p), tmpbuff);
+      g_free(tmpbuff);
+    }
 
     if(buff == NULL) {
       buff = g_strdup_printf("  %-15.15s: %s\n", owl_pair_get_key(p), "<error>");
@@ -351,6 +346,11 @@ const char *owl_message_get_timestr(const owl_message *m)
   return("");
 }
 
+CALLER_OWN char *owl_message_format_time(const owl_message *m)
+{
+  return owl_util_format_time(localtime(&m->time));
+}
+
 void owl_message_set_type_admin(owl_message *m)
 {
   owl_message_set_attribute(m, "type", "admin");
@@ -499,7 +499,7 @@ int owl_message_is_delete(const owl_message *m)
 #ifdef HAVE_LIBZEPHYR
 const ZNotice_t *owl_message_get_notice(const owl_message *m)
 {
-  return(&(m->notice));
+  return m->has_notice ? &m->notice : NULL;
 }
 #else
 void *owl_message_get_notice(const owl_message *m)
@@ -579,7 +579,7 @@ int owl_message_is_mail(const owl_message *m)
 }
 
 /* caller must free return value. */
-char *owl_message_get_cc(const owl_message *m)
+CALLER_OWN char *owl_message_get_cc(const owl_message *m)
 {
   const char *cur;
   char *out, *end;
@@ -596,7 +596,7 @@ char *owl_message_get_cc(const owl_message *m)
 }
 
 /* caller must free return value */
-GList *owl_message_get_cc_without_recipient(const owl_message *m)
+CALLER_OWN GList *owl_message_get_cc_without_recipient(const owl_message *m)
 {
   char *cc, *shortuser, *recip;
   const char *user;
@@ -790,15 +790,16 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
   
   /* first save the full notice */
   m->notice = *n;
+  m->has_notice = true;
 
   /* a little gross, we'll replace \r's with ' ' for now */
   owl_zephyr_hackaway_cr(&(m->notice));
   
   /* save the time, we need to nuke the string saved by message_init */
   if (m->timestr) g_free(m->timestr);
-  m->time=n->z_time.tv_sec;
-  m->timestr=g_strdup(ctime(&(m->time)));
-  m->timestr[strlen(m->timestr)-1]='\0';
+  m->time = n->z_time.tv_sec;
+  m->timestr = g_strdup(ctime(&m->time));
+  m->timestr[strlen(m->timestr)-1] = '\0';
 
   /* set other info */
   owl_message_set_sender(m, n->z_sender);
@@ -886,7 +887,7 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
     int status;
     char *zcrypt;
 
-    zcrypt = g_strdup_printf("%s/zcrypt", owl_get_bindir());
+    zcrypt = g_build_filename(owl_get_bindir(), "zcrypt", NULL);
 
     rv = call_filter(zcrypt, argv, owl_message_get_body(m), &out, &status);
     g_free(zcrypt);
@@ -1003,24 +1004,23 @@ void owl_message_create_from_zwrite(owl_message *m, const owl_zwrite *z, const c
 
 void owl_message_cleanup(owl_message *m)
 {
-  int i, j;
+  int i;
   owl_pair *p;
 #ifdef HAVE_LIBZEPHYR    
-  if (owl_message_is_type_zephyr(m) && owl_message_is_direction_in(m)) {
+  if (m->has_notice) {
     ZFreeNotice(&(m->notice));
   }
 #endif
   if (m->timestr) g_free(m->timestr);
 
   /* free all the attributes */
-  j=owl_list_get_size(&(m->attributes));
-  for (i=0; i<j; i++) {
-    p=owl_list_get_element(&(m->attributes), i);
+  for (i = 0; i < m->attributes->len; i++) {
+    p = m->attributes->pdata[i];
     g_free(owl_pair_get_value(p));
     g_free(p);
   }
 
-  owl_list_cleanup(&(m->attributes), NULL);
+  g_ptr_array_free(m->attributes, true);
  
   owl_message_invalidate_format(m);
 }

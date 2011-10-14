@@ -1,6 +1,8 @@
 #ifndef INC_BARNOWL_OWL_PERL_H
 #define INC_BARNOWL_OWL_PERL_H
 
+#include <stdio.h>
+
 #define OWL_PERL_VOID_CALL (void)POPs;
 
 /*
@@ -12,7 +14,7 @@
  * * meth   - a char* method name
  * * args   - a code block responsible for pushing args (other than the object)
  * * err    - a string with a %s format specifier to log in case of error
- * * fatalp - if true, perl errors terminate barnowl
+ * * fatalp - if true, perl errors terminate BarnOwl
  * * ret    - a code block executed if the call succeeded
  *
  * See also: `perldoc perlcall', `perldoc perlapi'

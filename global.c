@@ -1,12 +1,6 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <netdb.h>
-#include <termios.h>
-#include <sys/ioctl.h>
-#include <time.h>
 #include "owl.h"
+#include <stdio.h>
+#include <sys/ioctl.h>
 
 static void _owl_global_init_windows(owl_global *g);
 
@@ -46,13 +40,12 @@ void owl_global_init(owl_global *g) {
 
   owl_dict_create(&(g->filters));
   g->filterlist = NULL;
-  owl_list_create(&(g->puntlist));
+  g->puntlist = g_ptr_array_new();
   g->messagequeue = g_queue_new();
   owl_dict_create(&(g->styledict));
   g->curmsg_vert_offset=0;
   g->resizepending=0;
   g->direction=OWL_DIRECTION_DOWNWARDS;
-  g->zaway=0;
   owl_fmtext_init_colorpair_mgr(&(g->cpmgr));
   g->debug=OWL_DEBUG;
   owl_regex_init(&g->search_re);
@@ -64,7 +57,6 @@ void owl_global_init(owl_global *g) {
   owl_global_set_no_have_config(g);
   owl_history_init(&(g->msghist));
   owl_history_init(&(g->cmdhist));
-  owl_history_set_norepeats(&(g->cmdhist));
   g->nextmsgid=0;
 
   /* Fill in some variables which don't have constant defaults */
@@ -78,7 +70,7 @@ void owl_global_init(owl_global *g) {
 
   g->confdir = NULL;
   g->startupfile = NULL;
-  cd = g_strdup_printf("%s/%s", g->homedir, OWL_CONFIG_DIR);
+  cd = g_build_filename(g->homedir, OWL_CONFIG_DIR, NULL);
   owl_global_set_confdir(g, cd);
   g_free(cd);
 
@@ -172,7 +164,8 @@ void owl_global_push_context_obj(owl_global *g, owl_context *c)
 
 /* Pops the current context from the context stack and returns it. Caller is
  * responsible for freeing. */
-owl_context *owl_global_pop_context_no_delete(owl_global *g) {
+CALLER_OWN owl_context *owl_global_pop_context_no_delete(owl_global *g)
+{
   owl_context *c;
   if (!g->context_stack)
     return NULL;
@@ -364,7 +357,7 @@ void owl_global_set_confdir(owl_global *g, const char *cd) {
   g_free(g->confdir);
   g->confdir = g_strdup(cd);
   g_free(g->startupfile);
-  g->startupfile = g_strdup_printf("%s/startup", cd);
+  g->startupfile = g_build_filename(cd, "startup", NULL);
 }
 
 const char *owl_global_get_startupfile(const owl_global *g) {
@@ -578,20 +571,19 @@ owl_colorpair_mgr *owl_global_get_colorpair_mgr(owl_global *g) {
 
 /* puntlist */
 
-owl_list *owl_global_get_puntlist(owl_global *g) {
-  return(&(g->puntlist));
+GPtrArray *owl_global_get_puntlist(owl_global *g) {
+  return g->puntlist;
 }
 
 int owl_global_message_is_puntable(owl_global *g, const owl_message *m) {
-  const owl_list *pl;
-  int i, j;
+  const GPtrArray *pl;
+  int i;
 
-  pl=owl_global_get_puntlist(g);
-  j=owl_list_get_size(pl);
-  for (i=0; i<j; i++) {
-    if (owl_filter_message_match(owl_list_get_element(pl, i), m)) return(1);
+  pl = owl_global_get_puntlist(g);
+  for (i = 0; i < pl->len; i++) {
+    if (owl_filter_message_match(pl->pdata[i], m)) return 1;
   }
-  return(0);
+  return 0;
 }
 
 int owl_global_should_followlast(owl_global *g) {
@@ -724,7 +716,7 @@ void owl_global_messagequeue_addmsg(owl_global *g, owl_message *m)
  * is empty.  The caller should free the message after using it, if
  * necessary.
  */
-owl_message *owl_global_messagequeue_popmsg(owl_global *g)
+CALLER_OWN owl_message *owl_global_messagequeue_popmsg(owl_global *g)
 {
   owl_message *out;
 
@@ -753,8 +745,9 @@ const owl_style *owl_global_get_style_by_name(const owl_global *g, const char *n
   return owl_dict_find_element(&(g->styledict), name);
 }
 
-void owl_global_get_style_names(const owl_global *g, owl_list *l) {
-  owl_dict_get_keys(&(g->styledict), l);
+CALLER_OWN GPtrArray *owl_global_get_style_names(const owl_global *g)
+{
+  return owl_dict_get_keys(&g->styledict);
 }
 
 void owl_global_add_style(owl_global *g, owl_style *s)
@@ -853,7 +846,7 @@ void owl_global_setup_default_filters(owl_global *g)
     { "ping", "opcode ^ping$" },
     { "auto", "opcode ^auto$" },
     { "login", "not login ^none$" },
-    { "reply-lockout", "class ^noc or class ^mail$" },
+    { "reply-lockout", "class ^mail$" },
     { "out", "direction ^out$" },
     { "aim", "type ^aim$" },
     { "zephyr", "type ^zephyr$" },

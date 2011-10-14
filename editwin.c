@@ -1,8 +1,4 @@
 #include "owl.h"
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <ctype.h>
 
 #define VALID_EXCURSION	(0x9a2b4729)
 
@@ -36,7 +32,7 @@ struct _owl_editwin { /*noproto*/
   int echochar;
   oe_excursion *excursions;
 
-  void (*callback)(struct _owl_editwin*);
+  void (*callback)(struct _owl_editwin *e, bool success);
   void (*destroy_cbdata)(void *);
   void *cbdata;
 };
@@ -60,7 +56,7 @@ static gunichar owl_editwin_get_char_at_point(owl_editwin *e);
 static int owl_editwin_replace_internal(owl_editwin *e, int replace, const char *s);
 static const char *oe_copy_buf(owl_editwin *e, const char *buf, int len);
 static int oe_copy_region(owl_editwin *e);
-static char *oe_chunk(owl_editwin *e, int start, int end);
+static CALLER_OWN char *oe_chunk(owl_editwin *e, int start, int end);
 static void oe_destroy_cbdata(owl_editwin *e);
 static void oe_dirty(owl_editwin *e);
 static void oe_window_resized(owl_window *w, owl_editwin *e);
@@ -69,7 +65,7 @@ static void oe_window_resized(owl_window *w, owl_editwin *e);
 
 #define WHITESPACE " \n\t"
 
-static owl_editwin *owl_editwin_allocate(void)
+static CALLER_OWN owl_editwin *owl_editwin_allocate(void)
 {
   owl_editwin *e = g_new0(owl_editwin, 1);
   e->refcount = 1;
@@ -141,7 +137,7 @@ static void _owl_editwin_init(owl_editwin *e,
   e->echochar='\0';
 }
 
-owl_editwin *owl_editwin_new(owl_window *win, int winlines, int wincols, int style, owl_history *hist)
+CALLER_OWN owl_editwin *owl_editwin_new(owl_window *win, int winlines, int wincols, int style, owl_history *hist)
 {
   owl_editwin *e = owl_editwin_allocate();
 
@@ -223,12 +219,12 @@ void owl_editwin_set_dotsend(owl_editwin *e)
   e->dotsend=1;
 }
 
-void owl_editwin_set_callback(owl_editwin *e, void (*cb)(owl_editwin*))
+void owl_editwin_set_callback(owl_editwin *e, void (*cb)(owl_editwin *, bool))
 {
   e->callback = cb;
 }
 
-void (*owl_editwin_get_callback(owl_editwin *e))(owl_editwin*)
+void (*owl_editwin_get_callback(owl_editwin *e))(owl_editwin *, bool)
 {
   return e->callback;
 }
@@ -251,14 +247,14 @@ void *owl_editwin_get_cbdata(owl_editwin *e) {
   return e->cbdata;
 }
 
-void owl_editwin_do_callback(owl_editwin *e) {
-  void (*cb)(owl_editwin*);
-  cb=owl_editwin_get_callback(e);
-  if(!cb) {
+void owl_editwin_do_callback(owl_editwin *e, bool success)
+{
+  void (*cb)(owl_editwin *, bool);
+  cb = owl_editwin_get_callback(e);
+  if (!cb) {
     owl_function_error("Internal error: No editwin callback!");
   } else {
-    /* owl_function_error("text: |%s|", owl_editwin_get_text(e)); */
-    cb(e);
+    cb(e, success);
   }
 }
 
@@ -1150,7 +1146,8 @@ int owl_editwin_current_column(owl_editwin *e)
 void owl_editwin_fill_paragraph(owl_editwin *e)
 {
   oe_excursion x;
-  gunichar ch;
+  gunichar ch = 0;
+  gunichar last_ch;
   int sentence;
 
   if (e->fillcol < 0)
@@ -1183,6 +1180,7 @@ void owl_editwin_fill_paragraph(owl_editwin *e)
       break;
     }
 
+    last_ch = ch;
     ch = owl_editwin_get_char_at_point(e);
 
     if (owl_util_can_break_after(ch) || ch == '\n') {
@@ -1200,7 +1198,8 @@ void owl_editwin_fill_paragraph(owl_editwin *e)
       }
     }
 
-    if(ch == '.' || ch == '!' || ch == '?')
+    if (ch == '.' || ch == '!' || ch == '?' ||
+        (ch == '"' && (last_ch == '.' || last_ch == '!' || last_ch == '?')))
       sentence = 1;
     else
       sentence = 0;
@@ -1368,7 +1367,7 @@ const char *owl_editwin_get_text(owl_editwin *e)
   return(e->buff+e->lock);
 }
 
-char *owl_editwin_get_region(owl_editwin *e)
+CALLER_OWN char *owl_editwin_get_region(owl_editwin *e)
 {
   int start, end;
   start = e->index;
@@ -1387,7 +1386,7 @@ int owl_editwin_get_echochar(owl_editwin *e)
   return e->echochar;
 }
 
-static char *oe_chunk(owl_editwin *e, int start, int end)
+static CALLER_OWN char *oe_chunk(owl_editwin *e, int start, int end)
 {
   char *p;
   

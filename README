@@ -6,16 +6,21 @@ Based on owl 2.1.11, by James Kretchmar (http://www.ktools.org)
 
 Notes:
 -----
-This project's perl/lib/ contains the lib directories from the
+This project's perl/modules/ contains the lib directories from the
 following CPAN modules:
 
+AnyEvent::HTTP
 AnyEvent::XMPP
+Facebook::Graph
+Ouch
+URI::Encode
 
-They have been modified slightly for the needs of this project.
+Some have been modified slightly for the needs of this project.
 
 BarnOwl currently requires the following perl modules off of CPAN:
 
 AnyEvent
+Class::Accessor
 Glib
 PAR
 
@@ -26,7 +31,18 @@ these for you.
 The IRC module requires:
 
 AnyEvent::IRC
-Class::Accessor
+
+The Jabber module requires:
+
+Net::DNS
+Authen::SASL::Perl
+IO::Socket::SSL
+Digest::SHA1
+
+The Twitter module requires:
+
+HTML::Entities
+Net::Twitter::Lite
 
 The Jabber module requires:
 

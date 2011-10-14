@@ -9,7 +9,7 @@ BarnOwl::Module::Jabber
 
 =head1 DESCRIPTION
 
-This module implements Jabber support for barnowl.
+This module implements Jabber support for BarnOwl.
 
 =cut
 

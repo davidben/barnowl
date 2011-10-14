@@ -1,4 +1,3 @@
-#include <string.h>
 #include "owl.h"
 
 owl_filter *owl_filter_new_fromstring(const char *name, const char *string)
@@ -199,7 +198,7 @@ int owl_filter_message_match(const owl_filter *f, const owl_message *m)
 }
 
 
-char* owl_filter_print(const owl_filter *f)
+CALLER_OWN char *owl_filter_print(const owl_filter *f)
 {
   GString *out = g_string_new("");
 
@@ -219,7 +218,7 @@ char* owl_filter_print(const owl_filter *f)
       g_string_append(out, owl_util_color_to_string(f->bgcolor));
     }
     else {
-      g_string_append_printf(out, "%i",f->fgcolor);
+      g_string_append_printf(out, "%i",f->bgcolor);
     }
     g_string_append(out, " ");
   }
