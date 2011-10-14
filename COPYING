@@ -939,3 +939,18 @@ The file perl/modules/Facebook/lib/URI/Encode.pm is copyright (c)
 
 This module is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself. See perlartistic.
+
+======================================================================
+
+Files under perl/modules/Jabber/lib/AnyEvent/XMPP are
+Copyright 2007, 2008 Robin Redeker, all rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+======================================================================
+
+The file perl/modules/Jabber/lib/AnyEvent/XMPP/Socket.pm is copyright
+(c) Marc Lehmann.
+
+This module is licensed under the same terms as perl itself.
