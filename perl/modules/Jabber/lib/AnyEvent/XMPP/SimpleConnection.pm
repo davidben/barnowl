@@ -45,6 +45,12 @@ sub connect {
    $self->{handle}
       and return 1;
 
+   # tcp_connect treats "unix/" as magic.
+   if ($host eq "unix/") {
+       $self->disconnect ("Couldn't create socket to $host:$service: Invalid host");
+       return 1;
+   }
+
    $self->{handle} = tcp_connect $host, $service, sub {
       my ($fh, $peerip, $peerport, $retry, $peerhost) = @_;
 
