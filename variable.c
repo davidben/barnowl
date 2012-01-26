@@ -903,12 +903,15 @@ static CALLER_OWN  char *owl_variable_invoke_tostring(const owl_variable *v,
   GValue *value_box = values+1;
   GValue tostring_box = {0};
   char *ret = NULL;
+  gboolean need_to_free = false;
+
   g_value_init(values, G_TYPE_POINTER);
   g_value_set_pointer(values, (gpointer)v);
   g_value_init(&tostring_box, G_TYPE_STRING);
   if(value) {
     g_value_init(value_box, G_VALUE_TYPE(value));
     g_value_copy(value, value_box);
+    need_to_free = true;
   } else {
     g_value_init(value_box, owl_variable_gtype_map[v->type]);
     g_closure_invoke(v->get_fn, value_box, 1, values, NULL);
@@ -917,7 +920,9 @@ static CALLER_OWN  char *owl_variable_invoke_tostring(const owl_variable *v,
 
   ret = g_value_dup_string(&tostring_box);
   g_value_unset(&tostring_box);
-  g_value_unset(value_box);
+  if(need_to_free) {
+    g_value_unset(value_box);
+  }
 
   return ret;
 }
@@ -1352,9 +1357,12 @@ int owl_variable_string_set_default(owl_variable *v, const char *newval, void *d
 int owl_variable_string_set_fromstring_default(owl_variable *v, const char *newval, void *dummy) 
 {
   GValue val = {0};
+  int ret = -1;
   g_value_init(&val, G_TYPE_STRING);
-  g_value_set_static_string(&val, newval);
-  return owl_variable_invoke_setter(v, &val);
+  g_value_set_string(&val, newval);
+  ret = owl_variable_invoke_setter(v, &val);
+  g_value_unset(&val);
+  return ret;
 }
 
 CALLER_OWN char *owl_variable_string_get_tostring_default(const owl_variable *v, const char *val, void *dummy)
