@@ -495,9 +495,9 @@ int owl_variable_aaway_set(owl_variable *v, const gboolean newval, void *dummy)
   return owl_variable_bool_set_default(v, newval, dummy);
 }
 
-int owl_variable_colorztext_set(owl_variable *v, const void *newval)
+int owl_variable_colorztext_set(owl_variable *v, const void *newval, void *dummy)
 {
-  int ret = owl_variable_bool_set_default(v, newval);
+  int ret = owl_variable_bool_set_default(v, newval, dummy);
   /* flush the format cache so that we see the update, but only if we're done initializing BarnOwl */
   if (owl_global_get_msglist(&g) != NULL)
     owl_messagelist_invalidate_formats(owl_global_get_msglist(&g));
@@ -508,7 +508,7 @@ int owl_variable_colorztext_set(owl_variable *v, const void *newval)
   return ret;
 }
 
-int owl_variable_pseudologins_set(owl_variable *v, const void *newval)
+int owl_variable_pseudologins_set(owl_variable *v, const int newval, void *dummy)
 {
   static guint timer = 0;
   if (newval == 1) {
