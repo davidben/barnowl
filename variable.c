@@ -698,7 +698,6 @@ int owl_variable_dict_add_from_list(owl_vardict *vd, owl_variable_init_params *v
     g_value_init(&ret, G_TYPE_INT);
     g_closure_invoke(newvar->set_fn, &ret, 2, values, NULL);
     g_value_unset(value);
-    /*    g_value_unset(&ret); */
     owl_dict_insert_element(vd, newvar->name, newvar, NULL);
   }
   return 0;
@@ -769,7 +768,6 @@ void owl_variable_dict_newvar_string(owl_vardict *vd, const char *name, const ch
     OWL_VARIABLE_SETUP_DEFAULT_FUNCS(var, string, STRING);
 
     g_closure_invoke(var->set_fn, &retval, 2, default_gvals, NULL);
-    /*    g_value_unset(&retval); */
     owl_variable_dict_add_variable(vd, var);
   }
 }
@@ -821,8 +819,7 @@ void owl_variable_dict_newvar_bool(owl_vardict *vd, const char *name, const char
     g_value_init(default_gvals, G_TYPE_POINTER);
     g_value_set_pointer(default_gvals, var);
 
-    g_closure_invoke(var->set_fn, &retval, 2, default_gvals, NULL);
-    /*    g_value_unset(&retval); */
+    g_closure_invoke(var->set_fn, &retval, 2, default_gvals, NULL);  
     owl_variable_dict_add_variable(vd, var);
   }
 }
@@ -957,10 +954,8 @@ int owl_variable_set_fromstring(owl_variable *v, const char *value, int msg) {
       owl_function_makemsg("%s = <null>", owl_variable_get_name(v));
     }
     g_free(tostring);
-    /* not unsetting set_value_box, since we don't own its contents */
   }
   g_value_unset(value_box);
-  /*  g_value_unset(&return_box); */
   return set_successfully;
 }
 
@@ -1051,7 +1046,6 @@ owl_variable *owl_variable_get_var(const owl_vardict *d, const char *name)
 {
   return owl_dict_find_element(d, name);
 }
-
 
 const GValue *owl_variable_get(const owl_variable *v, GValue *val)
 {
