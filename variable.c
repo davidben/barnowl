@@ -1353,7 +1353,8 @@ int owl_variable_string_set_fromstring_default(owl_variable *v, const char *newv
   GValue val = {0};
   int ret = -1;
   g_value_init(&val, G_TYPE_STRING);
-  g_value_set_string(&val, newval);
+  /* we don't need to dup the string because we don't own it and the setter function we invoke will DTRT */
+  g_value_set_static_string(&val, newval);
   ret = owl_variable_invoke_setter(v, &val);
   g_value_unset(&val);
   return ret;
@@ -1361,6 +1362,10 @@ int owl_variable_string_set_fromstring_default(owl_variable *v, const char *newv
 
 CALLER_OWN char *owl_variable_string_get_tostring_default(const owl_variable *v, const char *val, void *dummy)
 {
-  return g_strdup(val);
+  if(val) {
+    return g_strdup(val);
+  } else {
+    return g_strdup("");
+  }
 }
 
