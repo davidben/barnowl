@@ -896,39 +896,6 @@ int owl_variable_get_type(const owl_variable *v)
   return v->type;
 }
 
-/* functions for getting and setting variable values */
-
-static CALLER_OWN  char *owl_variable_invoke_tostring(const owl_variable *v,
-						     const GValue *value) 
-{
-  GValue values[] = { {0}, {0}};
-  GValue *value_box = values+1;
-  GValue tostring_box = {0};
-  char *ret = NULL;
-  gboolean need_to_free = false;
-
-  g_value_init(values, G_TYPE_POINTER);
-  g_value_set_pointer(values, (gpointer)v);
-  g_value_init(&tostring_box, G_TYPE_STRING);
-  if(value) {
-    g_value_init(value_box, G_VALUE_TYPE(value));
-    g_value_copy(value, value_box);
-    need_to_free = true;
-  } else {
-    g_value_init(value_box, owl_variable_gtype_map[v->type]);
-    g_closure_invoke(v->get_fn, value_box, 1, values, NULL);
-  }
-  g_closure_invoke(v->get_tostring_fn,&tostring_box, 2, values, NULL);
-
-  ret = g_value_dup_string(&tostring_box);
-  g_value_unset(&tostring_box);
-  if(need_to_free) {
-    g_value_unset(value_box);
-  }
-
-  return ret;
-}
-
 /* returns 0 on success, prints a status msg if msg is true */
 int owl_variable_set_fromstring(owl_variable *v, const char *value, int msg) {
   char *tostring;
@@ -952,7 +919,7 @@ int owl_variable_set_fromstring(owl_variable *v, const char *value, int msg) {
                                 owl_variable_get_validsettings(v));
   }
   if (msg && (0 != set_successfully)) {
-    tostring = owl_variable_invoke_tostring(v, NULL);
+    tostring = owl_variable_get_tostring(v);
     if (tostring) {
       owl_function_makemsg("%s = '%s'", owl_variable_get_name(v), tostring);
     } else {
@@ -1029,7 +996,27 @@ int owl_variable_set_bool_off(owl_variable *v)
 
 CALLER_OWN char *owl_variable_get_tostring(const owl_variable *v)
 {
-  return owl_variable_invoke_tostring(v, NULL);
+  GValue values[] = { {0}, {0}};
+  GValue *value_box = values+1;
+  GValue tostring_box = {0};
+  char *ret = NULL;
+
+  g_value_init(values, G_TYPE_POINTER);
+  g_value_set_pointer(values, (gpointer)v);
+  g_value_init(&tostring_box, G_TYPE_STRING);
+  g_value_init(value_box, owl_variable_gtype_map[v->type]);
+  g_closure_invoke(v->get_fn, value_box, 1, values, NULL);
+  g_closure_invoke(v->get_tostring_fn,&tostring_box, 2, values, NULL);
+
+  ret = g_value_dup_string(&tostring_box);
+  g_value_unset(&tostring_box);
+  /*
+  if(need_to_free) {
+    g_value_unset(value_box);
+  }
+  */
+
+  return ret;
 }
 
 CALLER_OWN char *owl_variable_get_default_tostring(const owl_variable *v)
