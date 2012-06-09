@@ -637,7 +637,7 @@ int owl_variable_dict_add_from_list(owl_vardict *vd, owl_variable_init_params *v
       break;
     case OWL_VARIABLE_BOOL:
       OWL_VARIABLE_SETUP_FUNC(newvar, init_params, get_fn, 
-                              G_CALLBACK(owl_variable_int_get_default), 
+                              G_CALLBACK(owl_variable_bool_get_default), 
                               g_cclosure_user_marshal_BOOLEAN__VOID, fn);
       OWL_VARIABLE_SETUP_FUNC(newvar, init_params, set_fn, 
                               G_CALLBACK(owl_variable_bool_set_default), 
@@ -1171,7 +1171,7 @@ const gboolean owl_variable_bool_get_default(const owl_variable *v, void *dummy)
 }
 
 const gboolean owl_variable_bool_get_default_default(const owl_variable *v, void *dummy) {
-  return g_value_get_boolean(&(v->val));
+  return g_value_get_boolean(&(v->gval_default));
 }
 
 
