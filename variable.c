@@ -794,7 +794,7 @@ void owl_variable_dict_newvar_int(owl_vardict *vd, const char *name, const char 
     OWL_VARIABLE_SETUP_DEFAULT_FUNCS(var, int, INT);
     g_value_init(default_gvals, G_TYPE_POINTER);
     g_value_set_pointer(default_gvals, var);
-
+    g_value_set_int(&(var->gval_default), initval);
     g_closure_invoke(var->set_fn, &retval, 2, default_gvals, NULL);
     /*    g_value_unset(&retval); */
     owl_variable_dict_add_variable(vd, var);
@@ -818,11 +818,12 @@ void owl_variable_dict_newvar_bool(owl_vardict *vd, const char *name, const char
     var->type = OWL_VARIABLE_BOOL;
     var->validsettings = "on,off";
     g_value_init(&(var->val), G_TYPE_BOOLEAN);
+    g_value_init(&(var->gval_default), G_TYPE_BOOLEAN);
     OWL_VARIABLE_SETUP_DEFAULT_FUNCS(var, bool, BOOLEAN);
 
     g_value_init(default_gvals, G_TYPE_POINTER);
     g_value_set_pointer(default_gvals, var);
-
+    g_value_set_int(&(var->gval_default), initval);
     g_closure_invoke(var->set_fn, &retval, 2, default_gvals, NULL);  
     owl_variable_dict_add_variable(vd, var);
   }
