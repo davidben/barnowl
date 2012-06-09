@@ -8,31 +8,31 @@ static const GType owl_variable_gtype_map[] = {G_TYPE_POINTER,
 
 #define OWLVAR_BOOL(name,default,summary,description) \
         { g_strdup(name), OWL_VARIABLE_BOOL, NULL, default, "on,off", g_strdup(summary), g_strdup(description), NULL, \
-	    NULL, NULL, NULL, NULL, NULL, NULL }
+	    NULL, NULL, NULL, NULL, NULL }
 
 #define OWLVAR_BOOL_FULL(name,default,summary,description,validate,set,get) \
         { g_strdup(name), OWL_VARIABLE_BOOL, NULL, default, "on,off", g_strdup(summary), g_strdup(description), NULL, \
-	    G_CALLBACK(validate), G_CALLBACK(set), NULL, G_CALLBACK(get), NULL, NULL }
+	    G_CALLBACK(validate), G_CALLBACK(set), NULL, G_CALLBACK(get), NULL }
 
 #define OWLVAR_INT(name,default,summary,description) \
         { g_strdup(name), OWL_VARIABLE_INT, NULL, default, "<int>", g_strdup(summary), g_strdup(description), NULL, \
-	    NULL, NULL, NULL, NULL, NULL, NULL }
+	    NULL, NULL, NULL, NULL, NULL }
 
 #define OWLVAR_INT_FULL(name,default,summary,description,validset,validate,set,get) \
         { g_strdup(name), OWL_VARIABLE_INT, NULL, default, validset, g_strdup(summary), g_strdup(description), NULL, \
-	    G_CALLBACK(validate), G_CALLBACK(set), NULL, G_CALLBACK(get), NULL, NULL }
+	    G_CALLBACK(validate), G_CALLBACK(set), NULL, G_CALLBACK(get), NULL }
 
 #define OWLVAR_PATH(name,default,summary,description) \
         { g_strdup(name), OWL_VARIABLE_STRING, g_strdup(default), 0, "<path>", g_strdup(summary), g_strdup(description),  NULL, \
-	    NULL, NULL, NULL, NULL, NULL, NULL }
+	    NULL, NULL, NULL, NULL, NULL }
 
 #define OWLVAR_STRING(name,default,summary,description) \
         { g_strdup(name), OWL_VARIABLE_STRING, g_strdup(default), 0, "<string>", g_strdup(summary), g_strdup(description), NULL, \
-	    NULL, NULL, NULL, NULL, NULL, NULL }
+	    NULL, NULL, NULL, NULL, NULL }
 
 #define OWLVAR_STRING_FULL(name,default,validset,summary,description,validate,set,get) \
         { g_strdup(name), OWL_VARIABLE_STRING, g_strdup(default), 0, validset, g_strdup(summary), g_strdup(description), NULL, \
-	    G_CALLBACK(validate), G_CALLBACK(set), NULL, G_CALLBACK(get), NULL, NULL }
+	    G_CALLBACK(validate), G_CALLBACK(set), NULL, G_CALLBACK(get), NULL }
 
 /* enums are really integers, but where validset is a comma-separated
  * list of strings which can be specified.  The tokens, starting at 0,
@@ -42,14 +42,14 @@ static const GType owl_variable_gtype_map[] = {G_TYPE_POINTER,
 	    G_CALLBACK(owl_variable_enum_validate),			\
 	    NULL, G_CALLBACK(owl_variable_enum_set_fromstring),		\
 	    NULL, G_CALLBACK(owl_variable_enum_get_tostring),		\
-	    NULL }
+	    }
 
 #define OWLVAR_ENUM_FULL(name,default,summary,description,validset,validate, set, get) \
         { g_strdup(name), OWL_VARIABLE_INT, NULL, default, validset, g_strdup(summary), g_strdup(description), NULL, \
 	    G_CALLBACK(validate),					\
 	    G_CALLBACK(set), G_CALLBACK(owl_variable_enum_set_fromstring), \
 	    G_CALLBACK(get), G_CALLBACK(owl_variable_enum_get_tostring), \
-	    NULL }
+	    }
 
 int owl_variable_add_defaults(owl_vardict *vd)
 {
@@ -438,7 +438,7 @@ int owl_variable_add_defaults(owl_vardict *vd)
 
   /* This MUST be last... */
   { NULL, 0, NULL, 0, NULL, NULL, NULL, NULL,
-    NULL, NULL, NULL, NULL, NULL, NULL }
+    NULL, NULL, NULL, NULL, NULL }
 
   };
 
@@ -676,9 +676,6 @@ int owl_variable_dict_add_from_list(owl_vardict *vd, owl_variable_init_params *v
       fprintf(stderr, "owl_variable_setup: invalid variable type\n");
       return(-2);
     }
-    OWL_VARIABLE_SETUP_FUNC(newvar, init_params, delete_fn, 
-                            G_CALLBACK(owl_variable_delete_default),
-                            g_cclosure_marshal_VOID__VOID, fn);
     
     g_value_init(&(newvar->val), G_VALUE_TYPE(value));
     /* we have the value boxed up already *anyway*, so... */
@@ -842,16 +839,11 @@ CALLER_OWN GPtrArray *owl_variable_dict_get_names(const owl_vardict *d) {
 
 void owl_variable_cleanup(owl_variable *v)
 {
-  GValue val = {0};
-  if (v->delete_fn) {
-    g_value_init(&val, G_TYPE_POINTER);
-    g_value_set_pointer(&val, v);
-    g_closure_invoke(v->delete_fn, NULL, 1, &val, NULL);
-  }
   g_free(v->name);
   g_free(v->summary);
   g_free(v->description);
   g_free(v->default_str);
+  g_value_unset(&(v->val));
   g_closure_unref(v->get_fn);
   g_closure_unref(v->set_fn);
   g_closure_unref(v->validate_fn);
@@ -1133,11 +1125,6 @@ const int owl_variable_int_get_default(const owl_variable *v, void *dummy) {
 
 const gboolean owl_variable_bool_get_default(const owl_variable *v, void *dummy) {
   return g_value_get_boolean(&(v->val));
-}
-
-void owl_variable_delete_default(owl_variable *v, void *dummy)
-{
-  g_value_unset(&(v->val));
 }
 
 /* default functions for booleans */

@@ -261,8 +261,6 @@ typedef struct _owl_variable {
   GClosure *get_tostring_fn;
                                 /* converts val to a string;
 				 * caller must free the result */
-  GClosure *delete_fn;
-				/* frees val as needed */
 } owl_variable;
 
 typedef struct _owl_variable_init_params {
@@ -295,8 +293,6 @@ typedef struct _owl_variable_init_params {
   GCallback get_tostring_fn;
                                 /* converts val to a string;
 				 * caller must free the result */
-  GCallback delete_fn;
-				/* frees val as needed */
 } owl_variable_init_params;
 
 
