@@ -58,31 +58,6 @@ extern void g_cclosure_user_marshal_STRING__VOID (GClosure     *closure,
 
 /* INT:STRING (marshal_types:11) */
 
-/* STRING:BOOL (marshal_types:13) */
-extern void g_cclosure_user_marshal_STRING__BOOLEAN (GClosure     *closure,
-                                                     GValue       *return_value,
-                                                     guint         n_param_values,
-                                                     const GValue *param_values,
-                                                     gpointer      invocation_hint,
-                                                     gpointer      marshal_data);
-#define g_cclosure_user_marshal_STRING__BOOL	g_cclosure_user_marshal_STRING__BOOLEAN
-
-/* STRING:INT (marshal_types:14) */
-extern void g_cclosure_user_marshal_STRING__INT (GClosure     *closure,
-                                                 GValue       *return_value,
-                                                 guint         n_param_values,
-                                                 const GValue *param_values,
-                                                 gpointer      invocation_hint,
-                                                 gpointer      marshal_data);
-
-/* STRING:STRING (marshal_types:15) */
-extern void g_cclosure_user_marshal_STRING__STRING (GClosure     *closure,
-                                                    GValue       *return_value,
-                                                    guint         n_param_values,
-                                                    const GValue *param_values,
-                                                    gpointer      invocation_hint,
-                                                    gpointer      marshal_data);
-
 G_END_DECLS
 
 #endif /* __g_cclosure_user_marshal_MARSHAL_H__ */

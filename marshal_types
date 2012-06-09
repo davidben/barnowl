@@ -9,8 +9,4 @@ STRING:VOID
 # validate_fn has same signature as set_fn
 # set_fromstring_fn
 INT:STRING
-# get_tostring_fn
-STRING:BOOL
-STRING:INT
-STRING:STRING
-
+# get_tostring_fn has same signature as get_fn
