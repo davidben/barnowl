@@ -1603,7 +1603,7 @@ char *owl_command_set(int argc, const char *const *argv, const char *buff)
   v = owl_variable_get_var(owl_global_get_vardict(&g), var);
   if (v == NULL) {
     if (!silent) owl_function_error("Unknown variable '%s'", var);
-  } else if (requirebool && owl_variable_get_type(v) != OWL_VARIABLE_BOOL) {
+  } else if (requirebool && !v->takes_on_off) {
     // FIXME: The above won't work when we make perl variables OWL_VARIABLE_SV
     if (!silent) owl_function_error("Variable '%s' is not a boolean", var);
   } else {
@@ -1633,7 +1633,7 @@ char *owl_command_unset(int argc, const char *const *argv, const char *buff)
   v = owl_variable_get_var(owl_global_get_vardict(&g), var);
   if (v == NULL) {
     if (!silent) owl_function_error("Unknown variable '%s'", var);
-  } else if (owl_variable_get_type(v) != OWL_VARIABLE_BOOL) {
+  } else if (!v->takes_on_off) {
     // FIXME: The above won't work when we make perl variables OWL_VARIABLE_SV
     if (!silent) owl_function_error("Variable '%s' is not a boolean", var);
   } else {
