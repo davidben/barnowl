@@ -914,7 +914,7 @@ const char *owl_variable_get_string(const owl_variable *v)
 
 int owl_variable_get_int(const owl_variable *v)
 {
-  g_return_val_if_fail(v->type == OWL_VARIABLE_INT, -42);
+  g_return_val_if_fail(v->type == OWL_VARIABLE_INT, 0);
 
   get_int_t cb = (get_int_t) v->get_fn;
   return cb(v);
