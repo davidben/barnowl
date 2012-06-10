@@ -477,7 +477,6 @@ int main(int argc, char **argv, char **env)
   int argc_copy;
   char **argv_copy;
   char *perlout, *perlerr;
-  const char *dlerr;
   const owl_style *s;
   const char *dir;
   owl_options opts;
@@ -550,16 +549,6 @@ int main(int argc, char **argv, char **env)
     fprintf(stderr, "Internal perl error: %s\n", perlerr);
     fflush(stderr);
     printf("Internal perl error: %s\n", perlerr);
-    fflush(stdout);
-    exit(1);
-  }
-
-  dlerr = owl_closure_init();
-  if(dlerr) {
-    endwin();
-    fprintf(stderr, "Error binding gtk2-perl functions from C: %s\n",dlerr);
-    fflush(stderr);
-    fprintf(stdout, "Error binding gtk2-perl functions from C: %s\n",dlerr);
     fflush(stdout);
     exit(1);
   }
