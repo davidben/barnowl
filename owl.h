@@ -266,13 +266,13 @@ typedef struct _owl_variable {
 } owl_variable;
 
 typedef struct _owl_variable_init_params {
-  char *name;
+  const char *name;
   int   type;  /* OWL_VARIABLE_* */
-  void *pval_default;  /* for types other and string */
+  const void *pval_default;  /* for types other and string */
   int   ival_default;  /* for types int and bool     */
   const char *validsettings;	/* documentation of valid settings */
-  char *summary;		/* summary of usage */
-  char *description;		/* detailed description */
+  const char *summary;		/* summary of usage */
+  const char *description;	/* detailed description */
   void *val;                    /* current value */
   GCallback validate_fn;
                                 /* returns 1 if newval is valid */
