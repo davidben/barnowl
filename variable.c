@@ -579,9 +579,9 @@ int owl_variable_dict_setup(owl_vardict *vd) {
 }
 
 CALLER_OWN GClosure *owl_variable_make_closure(owl_variable *v,
-                                                      GCallback fn,
-                                                      GClosureMarshal marshal) {
-  GClosure *closure = g_cclosure_new(fn, NULL, NULL);
+                                               GCallback fn,
+                                               GClosureMarshal marshal) {
+  GClosure *closure = g_cclosure_new_swap(fn, v, NULL);
   g_closure_set_marshal(closure,marshal);
   g_closure_ref(closure);
   g_closure_sink(closure);
@@ -835,7 +835,7 @@ int owl_variable_set_fromstring(owl_variable *v, const char *value, int msg) {
     return -1;   
   }
   g_value_init(&values[0], G_TYPE_POINTER);
-  g_value_set_pointer(values, v);
+  g_value_set_pointer(&values[0], NULL);
   g_value_init(value_box, G_TYPE_STRING);
   g_value_set_static_string(value_box, value);
   g_value_init(&return_box, G_TYPE_INT);
@@ -895,14 +895,14 @@ int owl_variable_set_bool_off(owl_variable *v)
 
 CALLER_OWN char *owl_variable_get_tostring(const owl_variable *v)
 {
-  GValue var_box = {0};
+  GValue instance = {0};
   GValue tostring_box = {0};
   char *ret = NULL;
 
-  g_value_init(&var_box, G_TYPE_POINTER);
-  g_value_set_pointer(&var_box, (gpointer)v);
+  g_value_init(&instance, G_TYPE_POINTER);
+  g_value_set_pointer(&instance, NULL);
   g_value_init(&tostring_box, G_TYPE_STRING);
-  g_closure_invoke(v->get_tostring_fn, &tostring_box, 1, &var_box, NULL);
+  g_closure_invoke(v->get_tostring_fn, &tostring_box, 1, &instance, NULL);
 
   ret = g_value_dup_string(&tostring_box);
   g_value_unset(&tostring_box);
