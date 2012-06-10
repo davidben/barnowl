@@ -14,49 +14,13 @@ extern void g_cclosure_user_marshal_INT__STRING (GClosure     *closure,
                                                  gpointer      invocation_hint,
                                                  gpointer      marshal_data);
 
-/* INT:INT (marshal_types:3) */
-extern void g_cclosure_user_marshal_INT__INT (GClosure     *closure,
-                                              GValue       *return_value,
-                                              guint         n_param_values,
-                                              const GValue *param_values,
-                                              gpointer      invocation_hint,
-                                              gpointer      marshal_data);
-
-/* INT:BOOL (marshal_types:4) */
-extern void g_cclosure_user_marshal_INT__BOOLEAN (GClosure     *closure,
-                                                  GValue       *return_value,
-                                                  guint         n_param_values,
-                                                  const GValue *param_values,
-                                                  gpointer      invocation_hint,
-                                                  gpointer      marshal_data);
-#define g_cclosure_user_marshal_INT__BOOL	g_cclosure_user_marshal_INT__BOOLEAN
-
-/* INT:VOID (marshal_types:6) */
-extern void g_cclosure_user_marshal_INT__VOID (GClosure     *closure,
-                                               GValue       *return_value,
-                                               guint         n_param_values,
-                                               const GValue *param_values,
-                                               gpointer      invocation_hint,
-                                               gpointer      marshal_data);
-
-/* BOOL:VOID (marshal_types:7) */
-extern void g_cclosure_user_marshal_BOOLEAN__VOID (GClosure     *closure,
-                                                   GValue       *return_value,
-                                                   guint         n_param_values,
-                                                   const GValue *param_values,
-                                                   gpointer      invocation_hint,
-                                                   gpointer      marshal_data);
-#define g_cclosure_user_marshal_BOOL__VOID	g_cclosure_user_marshal_BOOLEAN__VOID
-
-/* STRING:VOID (marshal_types:8) */
+/* STRING:VOID (marshal_types:4) */
 extern void g_cclosure_user_marshal_STRING__VOID (GClosure     *closure,
                                                   GValue       *return_value,
                                                   guint         n_param_values,
                                                   const GValue *param_values,
                                                   gpointer      invocation_hint,
                                                   gpointer      marshal_data);
-
-/* INT:STRING (marshal_types:11) */
 
 G_END_DECLS
 
