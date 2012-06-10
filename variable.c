@@ -826,9 +826,9 @@ int owl_variable_get_type(const owl_variable *v)
 /* returns 0 on success, prints a status msg if msg is true */
 int owl_variable_set_fromstring(owl_variable *v, const char *value, int msg) {
   char *tostring;
-  GValue values[] = {{0},{0},{0}};
+  GValue values[] = {G_VALUE_INIT, G_VALUE_INIT};
   GValue *value_box = &values[1];
-  GValue return_box = {0};
+  GValue return_box = G_VALUE_INIT;
   int set_successfully = -1;
   if (!v->set_fromstring_fn) {
     if (msg) owl_function_error("Variable %s is read-only", owl_variable_get_name(v));
@@ -895,8 +895,8 @@ int owl_variable_set_bool_off(owl_variable *v)
 
 CALLER_OWN char *owl_variable_get_tostring(const owl_variable *v)
 {
-  GValue instance = {0};
-  GValue tostring_box = {0};
+  GValue instance = G_VALUE_INIT;
+  GValue tostring_box = G_VALUE_INIT;
   char *ret = NULL;
 
   g_value_init(&instance, G_TYPE_POINTER);
