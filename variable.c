@@ -896,7 +896,7 @@ CALLER_OWN char *owl_variable_get_tostring(const owl_variable *v)
 
 const char *owl_variable_get_default_tostring(const owl_variable *v)
 {
-  return g_strdup(v->default_str);
+  return v->default_str;
 }
 
 owl_variable *owl_variable_get_var(const owl_vardict *d, const char *name)
