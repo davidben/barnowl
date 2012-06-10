@@ -240,27 +240,29 @@ typedef struct _owl_variable {
   char *summary;		/* summary of usage */
   char *description;		/* detailed description */
   GValue val;                    /* current value */
-  GClosure *validate_fn;
-                                /* returns 1 if newval is valid */
-  GClosure *set_fn;
-                                /* sets the variable to a value
-				 * of the appropriate type.
-				 * unless documented, this 
-				 * should make a copy. 
-				 * returns 0 on success. */
   GClosure *set_fromstring_fn;
                                 /* sets the variable to a value
 				 * of the appropriate type.
 				 * unless documented, this 
 				 * should make a copy. 
 				 * returns 0 on success. */
-  GClosure *get_fn;
-				/* returns a reference to the current value.
-				 * WARNING:  this approach is hard to make
-				 * thread-safe... */
   GClosure *get_tostring_fn;
                                 /* converts val to a string;
 				 * caller must free the result */
+
+  /* These are only valid for OWL_VARIABLE_{INT,BOOL,STRING} */
+  GCallback get_fn;
+				/* returns a reference to the current value.
+				 * WARNING:  this approach is hard to make
+				 * thread-safe... */
+  GCallback validate_fn;
+                                /* returns 1 if newval is valid */
+  GCallback set_fn;
+                                /* sets the variable to a value
+				 * of the appropriate type.
+				 * unless documented, this 
+				 * should make a copy. 
+				 * returns 0 on success. */
 } owl_variable;
 
 typedef struct _owl_variable_init_params {
