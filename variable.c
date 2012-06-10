@@ -922,9 +922,8 @@ CALLER_OWN char *owl_variable_get_tostring(const owl_variable *v)
   return ret;
 }
 
-CALLER_OWN char *owl_variable_get_default_tostring(const owl_variable *v)
+const char *owl_variable_get_default_tostring(const owl_variable *v)
 {
-  /* FIXME: This doesn't need to be CALLER_OWN. Fix callers. */
   return g_strdup(v->default_str);
 }
 
@@ -959,22 +958,22 @@ gboolean owl_variable_get_bool(const owl_variable *v)
 
 void owl_variable_describe(const owl_variable *v, owl_fmtext *fm)
 {
-  char *tostring = owl_variable_get_default_tostring(v);
+  const char *default_str = owl_variable_get_default_tostring(v);
   char *default_buf;
 
-  if (tostring)
-    default_buf = g_strdup_printf("'%s'", tostring);
+  if (default_str)
+    default_buf = g_strdup_printf("'%s'", default_str);
   else
     default_buf = g_strdup("<null>");
   owl_fmtext_appendf_normal(fm, OWL_TABSTR "%-20s - %s (default: %s)\n",
                             owl_variable_get_name(v),
                             owl_variable_get_summary(v), default_buf);
   g_free(default_buf);
-  g_free(tostring);
 }
 
 void owl_variable_get_help(const owl_variable *v, owl_fmtext *fm) {
   char *tostring;
+  const char *default_str;
 
   owl_fmtext_append_bold(fm, "OWL VARIABLE\n\n");
   owl_fmtext_append_normal(fm, OWL_TABSTR);
@@ -989,11 +988,10 @@ void owl_variable_get_help(const owl_variable *v, owl_fmtext *fm) {
   g_free(tostring);
   owl_fmtext_append_normal(fm, "\n\n");
 
-  tostring = owl_variable_get_default_tostring(v);
+  default_str = owl_variable_get_default_tostring(v);
   owl_fmtext_append_normal(fm, "Default:        ");
-  owl_fmtext_append_normal(fm, (tostring ? tostring : "<null>"));
+  owl_fmtext_append_normal(fm, (default_str ? default_str : "<null>"));
   owl_fmtext_append_normal(fm, "\n\n");
-  g_free(tostring);
 
   owl_fmtext_append_normal(fm, "Valid Settings: ");
   owl_fmtext_append_normal(fm, owl_variable_get_validsettings(v));
