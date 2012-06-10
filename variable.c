@@ -827,18 +827,18 @@ int owl_variable_get_type(const owl_variable *v)
 int owl_variable_set_fromstring(owl_variable *v, const char *value, int msg) {
   char *tostring;
   GValue values[] = {{0},{0},{0}};
-  GValue *value_box = values+1;
+  GValue *value_box = &values[1];
   GValue return_box = {0};
   int set_successfully = -1;
   if (!v->set_fromstring_fn) {
     if (msg) owl_function_error("Variable %s is read-only", owl_variable_get_name(v));
     return -1;   
   }
-  g_value_init(value_box, G_TYPE_STRING);
-  g_value_init(values, G_TYPE_POINTER);
+  g_value_init(&values[0], G_TYPE_POINTER);
   g_value_set_pointer(values, v);
-  g_value_init(&return_box, G_TYPE_INT);
+  g_value_init(value_box, G_TYPE_STRING);
   g_value_set_static_string(value_box, value);
+  g_value_init(&return_box, G_TYPE_INT);
   g_closure_invoke(v->set_fromstring_fn, &return_box, 2, values, NULL);
   set_successfully = g_value_get_int(&return_box);
   if (0 != set_successfully) {

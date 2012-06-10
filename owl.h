@@ -268,8 +268,8 @@ typedef struct _owl_variable {
 typedef struct _owl_variable_init_params {
   const char *name;
   int   type;  /* OWL_VARIABLE_* */
-  const void *pval_default;  /* for types other and string */
-  int   ival_default;  /* for types int and bool     */
+  const char *pval_default;     /* for string */
+  int   ival_default;           /* for types int and bool     */
   const char *validsettings;	/* documentation of valid settings */
   const char *summary;		/* summary of usage */
   const char *description;	/* detailed description */
