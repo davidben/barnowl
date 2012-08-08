@@ -40,8 +40,8 @@ void usage(void)
   fprintf(stderr, "  -d,--debug          enable debugging\n");
   fprintf(stderr, "  -v,--version        print the Barnowl version number and exit\n");
   fprintf(stderr, "  -h,--help           print this help message\n");
-  fprintf(stderr, "  -c,--config-file    specify an alternate config file\n");
   fprintf(stderr, "  -s,--config-dir     specify an alternate config dir (default ~/.owl)\n");
+  fprintf(stderr, "  -c,--config-file    specify an alternate config file (default ~/.owl/init.pl)\n");
   fprintf(stderr, "  -t,--tty            set the tty name\n");
 }
 
@@ -584,6 +584,11 @@ int main(int argc, char **argv, char **env)
     "-----------------------------------------------------------------m-m---\n"
   );
 
+  owl_function_debugmsg("startup: setting context interactive");
+
+  owl_global_pop_context(&g);
+  owl_global_push_context(&g, OWL_CTX_INTERACTIVE|OWL_CTX_RECV, NULL, "recv", NULL);
+
   /* process the startup file */
   owl_function_debugmsg("startup: processing startup file");
   owl_function_source(NULL);
@@ -594,11 +599,6 @@ int main(int argc, char **argv, char **env)
       owl_view_set_style(owl_global_get_current_view(&g), s);
   else
       owl_function_error("No such style: %s", owl_global_get_default_style(&g));
-
-  owl_function_debugmsg("startup: setting context interactive");
-
-  owl_global_pop_context(&g);
-  owl_global_push_context(&g, OWL_CTX_INTERACTIVE|OWL_CTX_RECV, NULL, "recv", NULL);
 
   source = owl_window_redraw_source_new();
   g_source_attach(source, NULL);

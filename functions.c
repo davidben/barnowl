@@ -215,7 +215,7 @@ void owl_function_adminmsg(const char *header, const char *body)
  */
 void owl_function_add_outgoing_zephyrs(const owl_zwrite *z)
 {
-  if (z->cc || owl_zwrite_get_numrecips(z) == 0) {
+  if (z->cc && owl_zwrite_is_personal(z)) {
     /* create the message */
     owl_message *m = g_new(owl_message, 1);
     owl_message_create_from_zwrite(m, z, owl_zwrite_get_message(z), 0);
@@ -224,8 +224,13 @@ void owl_function_add_outgoing_zephyrs(const owl_zwrite *z)
   } else {
     int i;
     for (i = 0; i < owl_zwrite_get_numrecips(z); i++) {
+      owl_message *m;
+
+      if (!owl_zwrite_recip_is_personal(owl_zwrite_get_recip_n(z, i)))
+        continue;
+
       /* create the message */
-      owl_message *m = g_new(owl_message, 1);
+      m = g_new(owl_message, 1);
       owl_message_create_from_zwrite(m, z, owl_zwrite_get_message(z), i);
 
       owl_global_messagequeue_addmsg(&g, m);
@@ -372,11 +377,8 @@ void owl_function_zwrite(owl_zwrite *z, const char *msg)
   }
   owl_function_makemsg("Waiting for ack...");
 
-  /* If it's personal */
-  if (owl_zwrite_is_personal(z)) {
-    /* create the outgoing message */
-    owl_function_add_outgoing_zephyrs(z);
-  }
+  /* create the outgoing message */
+  owl_function_add_outgoing_zephyrs(z);
 }
 #else
 void owl_function_zwrite(owl_zwrite *z, const char *msg) {
@@ -402,13 +404,13 @@ void owl_function_zcrypt(owl_zwrite *z, const char *msg)
   old_msg = g_strdup(owl_zwrite_get_message(z));
 
   zcrypt = g_build_filename(owl_get_bindir(), "zcrypt", NULL);
-  argv[0] = "zcrypt";
+  argv[0] = zcrypt;
   argv[1] = "-E";
   argv[2] = "-c"; argv[3] = owl_zwrite_get_class(z);
   argv[4] = "-i"; argv[5] = owl_zwrite_get_instance(z);
   argv[6] = NULL;
 
-  rv = call_filter(zcrypt, argv, owl_zwrite_get_message(z), &cryptmsg, &status);
+  rv = call_filter(argv, owl_zwrite_get_message(z), &cryptmsg, &status);
 
   g_free(zcrypt);
 
@@ -426,15 +428,13 @@ void owl_function_zcrypt(owl_zwrite *z, const char *msg)
   owl_zwrite_send_message(z);
   owl_function_makemsg("Waiting for ack...");
 
-  /* If it's personal */
-  if (owl_zwrite_is_personal(z)) {
-    /* Create the outgoing message. Restore the un-crypted message for display. */
-    owl_zwrite_set_message_raw(z, old_msg);
-    owl_function_add_outgoing_zephyrs(z);
-  }
+  /* Create the outgoing message. Restore the un-crypted message for display. */
+  owl_zwrite_set_message_raw(z, old_msg);
+  owl_function_add_outgoing_zephyrs(z);
 
-  /* free the zwrite */
+  /* Clean up. */
   g_free(cryptmsg);
+  g_free(old_msg);
 }
 
 void owl_callback_aimwrite(owl_editwin *e, bool success)
@@ -1430,6 +1430,7 @@ void owl_function_info(void)
     if (n != NULL) {
       char *tmpbuff, *tmpbuff2;
       int i, fields;
+      const char *f;
 
       if (!owl_message_is_pseudo(m)) {
 	owl_fmtext_append_normal(&fm, "  Kind      : ");
@@ -1471,8 +1472,9 @@ void owl_function_info(void)
 	fields=owl_zephyr_get_num_fields(n);
 	owl_fmtext_appendf_normal(&fm, "  Fields    : %i\n", fields);
 
-	for (i = 0; i < fields; i++) {
-          tmpbuff = owl_zephyr_get_field_as_utf8(n, i + 1);
+	for (i = 0, f = owl_zephyr_first_raw_field(n); f != NULL;
+	     i++, f = owl_zephyr_next_raw_field(n, f)) {
+          tmpbuff = owl_zephyr_field_as_utf8(n, f);
           tmpbuff2 = owl_text_indent(tmpbuff, 14, false);
           owl_fmtext_appendf_normal(&fm, "  Field %i   : %s\n", i + 1, tmpbuff2);
           g_free(tmpbuff2);
@@ -2183,7 +2185,7 @@ bool owl_function_create_filter(int argc, const char *const *argv)
   /* create the filter and check for errors */
   f = owl_filter_new(argv[1], argc-2, argv+2);
   if (f == NULL) {
-    owl_function_error("Invalid filter");
+    owl_function_error("Invalid filter: %s", argv[1]);
     return false;
   }
 

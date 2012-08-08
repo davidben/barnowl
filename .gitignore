@@ -1,16 +1,12 @@
 *.a
 *.o
 *.par
-*~
-.#*
-.*.swp
 .deps
 META.yml
 Makefile
 Makefile.in
 Makefile.old
 TAGS
-\#*#
 aclocal.m4
 autom4te.cache
 barnowl.bin
@@ -20,6 +16,7 @@ blib
 config.cache
 config.h
 config.h.in
+config.h.in~
 config.log
 config.status
 configure

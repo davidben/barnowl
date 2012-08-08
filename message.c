@@ -835,10 +835,8 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
   }
 
   
-  /* set the "isprivate" attribute if it's a private zephyr.
-   ``private'' means recipient is non-empty and doesn't start wit 
-   `@' */
-  if (*n->z_recipient && *n->z_recipient != '@') {
+  /* set the "isprivate" attribute if it's a private zephyr. */
+  if (owl_zwrite_recip_is_personal(n->z_recipient)) {
     owl_message_set_isprivate(m);
   }
 
@@ -876,20 +874,21 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
   /* if zcrypt is enabled try to decrypt the message */
   if (owl_global_is_zcrypt(&g) && !strcasecmp(n->z_opcode, "crypt")) {
     const char *argv[] = {
-      "zcrypt",
+      NULL,
       "-D",
       "-c", owl_message_get_class(m),
       "-i", owl_message_get_instance(m),
       NULL
     };
-    char *out;
+    char *out = NULL;
     int rv;
     int status;
     char *zcrypt;
 
     zcrypt = g_build_filename(owl_get_bindir(), "zcrypt", NULL);
+    argv[0] = zcrypt;
 
-    rv = call_filter(zcrypt, argv, owl_message_get_body(m), &out, &status);
+    rv = call_filter(argv, owl_message_get_body(m), &out, &status);
     g_free(zcrypt);
 
     if(!rv && !status) {
@@ -898,10 +897,12 @@ void owl_message_create_from_znotice(owl_message *m, const ZNotice_t *n)
         out[len - 8] = 0;
       }
       owl_message_set_body(m, out);
-      g_free(out);
-    } else if(out) {
-      g_free(out);
+    } else {
+      /* Replace the opcode. Otherwise the UI and other bits of code think the
+       * message was encrypted. */
+      owl_message_set_opcode(m, "failed-decrypt");
     }
+    g_free(out);
   }
 
   owl_message_save_ccs(m);
