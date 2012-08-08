@@ -537,9 +537,6 @@ int main(int argc, char **argv, char **env)
   /* Initialize perl */
   owl_function_debugmsg("startup: processing config file");
 
-  owl_global_pop_context(&g);
-  owl_global_push_context(&g, OWL_CTX_READCONFIG, NULL, NULL, NULL);
-
   perlerr=owl_perlconfig_initperl(opts.configfile, &argc, &argv, &env);
   if (perlerr) {
     endwin();
