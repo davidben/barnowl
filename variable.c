@@ -532,13 +532,17 @@ int owl_variable_pseudologins_set(owl_variable *v, const void *newval)
  * any user setting of this */
 int owl_variable_disable_ctrl_d_set(owl_variable *v, const void *newval)
 {
-  if (newval && !owl_context_is_startup(owl_global_get_context(&g))) {
+  owl_keymap *km;
+  km = owl_keyhandler_get_keymap(owl_global_get_keyhandler(&g), "editmulti");
+  if (!km) {
+    owl_function_error("Could not find keymap editmulti!");
+  } else if (newval) {
     if (*(const int*)newval == 2) {
-      owl_function_command_norv("bindkey editmulti C-d command edit:delete-next-char");
+      owl_keymap_create_binding(km, "C-d", "edit:delete-next-char", NULL, "");
     } else if (*(const int*)newval == 1) {
-      owl_function_command_norv("bindkey editmulti C-d command edit:done-or-delete");
+      owl_keymap_create_binding(km, "C-d", "edit:done-or-delete", NULL, "");
     } else {
-      owl_function_command_norv("bindkey editmulti C-d command edit:done");
+      owl_keymap_create_binding(km, "C-d", "edit:done", NULL, "");
     }
   }  
   return owl_variable_int_set_default(v, newval);  

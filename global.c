@@ -27,6 +27,9 @@ void owl_global_init(owl_global *g) {
   g->markedmsgid=-1;
   g->startupargs=NULL;
 
+  owl_keyhandler_init(&g->kh);
+  owl_keys_setup_keymaps(&g->kh);
+
   owl_variable_dict_setup(&(g->vars));
 
   g->rightshift=0;
@@ -34,9 +37,6 @@ void owl_global_init(owl_global *g) {
   g->pw = NULL;
   g->vw = NULL;
   g->tw = NULL;
-
-  owl_keyhandler_init(&g->kh);
-  owl_keys_setup_keymaps(&g->kh);
 
   owl_dict_create(&(g->filters));
   g->filterlist = NULL;
