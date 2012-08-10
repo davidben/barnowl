@@ -885,8 +885,6 @@ void owl_function_loadsubs(const char *file)
   /* for backwards compatibility for now */
   ret2=owl_zephyr_loaddefaultsubs();
 
-  if (!owl_context_is_interactive(owl_global_get_context(&g))) return;
-
   foo=file?file:"file";
   if (ret==0 && ret2==0) {
     if (!file) {
@@ -907,7 +905,6 @@ void owl_function_loadloginsubs(const char *file)
 
   ret=owl_zephyr_loadloginsubs(file);
 
-  if (!owl_context_is_interactive(owl_global_get_context(&g))) return;
   if (ret==0) {
   } else if (ret==-1) {
     owl_function_error("Could not open file for login subscriptions.");

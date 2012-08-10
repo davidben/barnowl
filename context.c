@@ -47,11 +47,6 @@ int owl_context_get_active(const owl_context *ctx)
   return ctx->mode & OWL_CTX_ACTIVE_BITS;
 }
 
-int owl_context_is_interactive(const owl_context *ctx)
-{
-  return(ctx->mode & OWL_CTX_INTERACTIVE)?1:0;
-}
-
 void owl_context_deactivate(owl_context *ctx)
 {
   if (ctx->deactivate_cb)
