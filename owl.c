@@ -549,6 +549,10 @@ int main(int argc, char **argv, char **env)
 
   owl_global_complete_setup(&g);
 
+  /* Commands and keymaps exist. Push a context. */
+  owl_function_debugmsg("startup: setting initial context");
+  owl_global_push_context(&g, OWL_CTX_INTERACTIVE|OWL_CTX_RECV, NULL, "recv", NULL);
+
   owl_global_setup_default_filters(&g);
 
   /* set the current view */
@@ -580,11 +584,6 @@ int main(int argc, char **argv, char **env)
     "Please report any bugs or suggestions to bug-barnowl@mit.edu    (   )  \n"
     "-----------------------------------------------------------------m-m---\n"
   );
-
-  owl_function_debugmsg("startup: setting context interactive");
-
-  owl_global_pop_context(&g);
-  owl_global_push_context(&g, OWL_CTX_INTERACTIVE|OWL_CTX_RECV, NULL, "recv", NULL);
 
   /* process the startup file */
   owl_function_debugmsg("startup: processing startup file");

@@ -152,8 +152,7 @@ typedef void HV;
 #define OWL_CTX_ANY          0xffff
 /* Only one of these may be active at a time... */
 #define OWL_CTX_MODE_BITS    0x000f
-#define OWL_CTX_STARTUP      0x0001
-#define OWL_CTX_INTERACTIVE  0x0002
+#define OWL_CTX_INTERACTIVE  0x0001
 /* Only one of these may be active at a time... */
 #define OWL_CTX_ACTIVE_BITS  0xfff0
 #define OWL_CTX_POPWIN       0x00f0

@@ -20,7 +20,6 @@ void owl_global_init(owl_global *g) {
   owl_window_resize(owl_window_get_screen(), g->lines, g->cols);
 
   g->context_stack = NULL;
-  owl_global_push_context(g, OWL_CTX_STARTUP, NULL, NULL, NULL);
 
   g->curmsg=0;
   g->topmsg=0;
