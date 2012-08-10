@@ -173,11 +173,9 @@ CALLER_OWN char *owl_cmd_execute(const owl_cmd *cmd, const owl_cmddict *cd, cons
   }
 
   /* Do validation and conversions */
-  if (cmd->cmd_ctxargs_fn || cmd->cmd_ctxv_fn || cmd->cmd_ctxi_fn) {
-    if (!owl_cmd_is_context_valid(cmd, ctx)) {
-      owl_function_makemsg("Invalid context for command '%s'.", cmdbuff);
-      return NULL;
-    }
+  if (!owl_cmd_is_context_valid(cmd, ctx)) {
+    owl_function_makemsg("Invalid context for command '%s'.", cmdbuff);
+    return NULL;
   }
 
   if ((argc != 1) && (cmd->cmd_v_fn || cmd->cmd_ctxv_fn)) {
