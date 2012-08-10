@@ -551,7 +551,7 @@ int main(int argc, char **argv, char **env)
 
   /* Commands and keymaps exist. Push a context. */
   owl_function_debugmsg("startup: setting initial context");
-  owl_global_push_context(&g, OWL_CTX_INTERACTIVE|OWL_CTX_RECV, NULL, "recv", NULL);
+  owl_global_push_context(&g, OWL_CTX_RECV, NULL, "recv", NULL);
 
   owl_global_setup_default_filters(&g);
 

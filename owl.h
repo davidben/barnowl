@@ -150,11 +150,9 @@ typedef void HV;
 
 /* Indicate current state, as well as what is allowed */
 #define OWL_CTX_ANY          0xffff
+#define OWL_CTX_INTERACTIVE  0xfffe
 /* Only one of these may be active at a time... */
-#define OWL_CTX_MODE_BITS    0x000f
-#define OWL_CTX_INTERACTIVE  0x0001
-/* Only one of these may be active at a time... */
-#define OWL_CTX_ACTIVE_BITS  0xfff0
+#define OWL_CTX_BLOCKING     0x0001
 #define OWL_CTX_POPWIN       0x00f0
 #define OWL_CTX_POPLESS      0x0010
 #define OWL_CTX_RECWIN       0x0f00
