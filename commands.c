@@ -506,7 +506,7 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
   OWLCMD_VOID("about", owl_command_about, OWL_CTX_INTERACTIVE,
 	      "print information about BarnOwl", "", ""),
 
-  OWLCMD_VOID("status", owl_command_status, OWL_CTX_ANY,
+  OWLCMD_VOID("status", owl_command_status, OWL_CTX_INTERACTIVE,
 	      "print status information about the running BarnOwl", "", ""),
   
   OWLCMD_ARGS("zlocate", owl_command_zlocate, OWL_CTX_INTERACTIVE,
@@ -721,19 +721,19 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 	      "prints a message into the debug log",
 	      "debug <message>", ""),
 
-  OWLCMD_ARGS("getview", owl_command_getview, OWL_CTX_INTERACTIVE,
+  OWLCMD_ARGS("getview", owl_command_getview, OWL_CTX_ANY,
 	      "returns the name of the filter for the current view",
 	      "", ""),
 
-  OWLCMD_ARGS("getvar", owl_command_getvar, OWL_CTX_INTERACTIVE,
+  OWLCMD_ARGS("getvar", owl_command_getvar, OWL_CTX_ANY,
 	      "returns the value of a variable",
 	      "getvar <varname>", ""),
 
-  OWLCMD_ARGS("getfilter", owl_command_getfilter, OWL_CTX_INTERACTIVE,
+  OWLCMD_ARGS("getfilter", owl_command_getfilter, OWL_CTX_ANY,
 	      "returns the definition of a filter",
 	      "getfilter <filtername>", ""),
 
-  OWLCMD_ARGS("getstyle", owl_command_getstyle, OWL_CTX_INTERACTIVE,
+  OWLCMD_ARGS("getstyle", owl_command_getstyle, OWL_CTX_ANY,
 	      "returns the name of the style for the current view",
 	      "", ""),
 
@@ -754,12 +754,12 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
           "search commands, but does not move the cursor.  With\n"
           "no argument, it makes search highlighting inactive."),
 
-  OWLCMD_ARGS("aimlogin", owl_command_aimlogin, OWL_CTX_ANY,
+  OWLCMD_ARGS("aimlogin", owl_command_aimlogin, OWL_CTX_INTERACTIVE,
 	      "login to an AIM account",
 	      "aimlogin <screenname> [<password>]\n",
 	      ""),
 
-  OWLCMD_ARGS("aimlogout", owl_command_aimlogout, OWL_CTX_ANY,
+  OWLCMD_ARGS("aimlogout", owl_command_aimlogout, OWL_CTX_INTERACTIVE,
 	      "logout from AIM",
 	      "aimlogout\n",
 	      ""),
