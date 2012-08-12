@@ -555,3 +555,33 @@ void owl_perlconfig_dec_refcnt(void *data)
   SV *v = data;
   SvREFCNT_dec(v);
 }
+
+void owl_perlconfig_context_dec_refcnt_cbdata(owl_context *ctx)
+{
+  owl_perlconfig_dec_refcnt(ctx->cbdata);
+}
+
+void owl_perlconfig_context_deactivate_callback(owl_context *ctx)
+{
+  SV *cb = ctx->cbdata;
+  dSP;
+
+  if(cb == NULL) {
+    owl_function_error("Perl callback is NULL!");
+    return;
+  }
+
+  ENTER;
+  SAVETMPS;
+
+  PUSHMARK(SP);
+
+  call_sv(cb, G_DISCARD|G_EVAL|G_NOARGS);
+
+  if(SvTRUE(ERRSV)) {
+    owl_function_error("%s", SvPV_nolen(ERRSV));
+  }
+
+  FREETMPS;
+  LEAVE;
+}

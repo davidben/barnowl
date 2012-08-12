@@ -367,6 +367,19 @@ skiptokens(str, n)
 	OUTPUT:
 		RETVAL
 
+void
+start_blocking_context(msg, callback)
+	const char *msg
+	SV *callback
+	CODE:
+	{
+		if (!SV_IS_CODEREF(callback))
+			croak("Callback must be a subref");
+
+		owl_function_start_blocking_context(
+			msg, owl_perlconfig_context_deactivate_callback,
+			owl_perlconfig_context_dec_refcnt_cbdata, newSVsv(callback));
+	}
 
 MODULE = BarnOwl		PACKAGE = BarnOwl::Zephyr
 
