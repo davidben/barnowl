@@ -966,6 +966,8 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
                   "",
                   "Move the point to the start of the current paragraph"),
 
+  OWLCMD_ALIAS("webzephyr", "zwrite " OWL_WEBZEPHYR_PRINCIPAL " -c " OWL_WEBZEPHYR_CLASS " -i"),
+
   /****************************************************************/
   /********************** POPLESS-SPECIFIC ************************/
   /****************************************************************/
@@ -1037,7 +1039,14 @@ void owl_cmd_add_defaults(owl_cmddict *cd)
 		  "-r is used, the search will be performed backwards.\n\n"
                   "SEE ALSO: popless:search"),
 
-  OWLCMD_ALIAS("webzephyr", "zwrite " OWL_WEBZEPHYR_PRINCIPAL " -c " OWL_WEBZEPHYR_CLASS " -i"),
+  /****************************************************************/
+  /*********************** BLOCKING-SPECIFIC **********************/
+  /****************************************************************/
+
+  OWLCMD_VOID("cancel-action", owl_command_cancel_action, OWL_CTX_BLOCKING,
+              "cancels the current actions",
+              "cancel-action",
+              ""),
 
   /* This line MUST be last! */
   { NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL }
@@ -2892,5 +2901,14 @@ void owl_command_popless_quit(owl_viewwin *vw)
     owl_global_set_viewwin(&g, NULL);
   owl_viewwin_delete(vw);
   owl_popwin_delete(pw);
+  owl_global_pop_context(&g);
+}
+
+/****************************************************************/
+/*********************** BLOCKING-SPECIFIC **********************/
+/****************************************************************/
+
+void owl_command_cancel_action(void)
+{
   owl_global_pop_context(&g);
 }

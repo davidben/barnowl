@@ -10,7 +10,7 @@
 /* sets up the default keymaps */
 void owl_keys_setup_keymaps(owl_keyhandler *kh) {
   owl_keymap *km, *km_global, *km_editwin, *km_mainwin,
-    *km_ew_multi, *km_ew_onel, *km_viewwin;
+    *km_ew_multi, *km_ew_onel, *km_viewwin, *km_blocking;
 
   
   /****************************************************************/
@@ -325,6 +325,18 @@ void owl_keys_setup_keymaps(owl_keyhandler *kh) {
 
   BIND_CMD("C-c",  "",                "no effect in this mode");
   BIND_CMD("C-g",  "",                "no effect in this mode");
+
+
+  /****************************************************************/
+  /**************************** BLOCKING * ************************/
+  /****************************************************************/
+
+  km_blocking = km = owl_keyhandler_create_and_add_keymap(kh, "blocking",
+       "Waiting for a modal, long-running action",
+        owl_keys_default_invalid, NULL, NULL);
+  owl_keymap_set_parent(km_blocking, km_global);
+
+  BIND_CMD("C-c", "cancel-action", "cancels the current action");
 }
 
 

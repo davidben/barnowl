@@ -276,6 +276,19 @@ CALLER_OWN owl_message *owl_function_make_outgoing_loopback(const char *body)
   return(m);
 }
 
+void owl_function_start_blocking_context(const char *msg, void (*deactivate_cb)(owl_context*), void (*delete_cb)(owl_context*), void *cbdata)
+{
+  owl_context *ctx;
+
+  owl_function_makemsg("%s", msg);
+
+  ctx = owl_context_new(OWL_CTX_BLOCKING, NULL, "blocking", NULL);
+  ctx->deactivate_cb = deactivate_cb;
+  ctx->delete_cb = delete_cb;
+  ctx->cbdata = cbdata;
+  owl_global_push_context_obj(&g, ctx);
+}
+
 owl_editwin *owl_function_start_edit_win(const char *line)
 {
   owl_editwin *e;
