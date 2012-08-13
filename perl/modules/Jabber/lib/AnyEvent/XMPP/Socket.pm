@@ -49,6 +49,18 @@ our @EXPORT = qw(
    tcp_connect
 );
 
+# used in cases where we may return immediately but want the
+# caller to do stuff first
+sub _postpone {
+   my ($cb, @args) = (@_, $!);
+
+   my $w; $w = AE::timer 0, 0, sub {
+      undef $w;
+      $! = pop @args;
+      $cb->(@args);
+   };
+}
+
 sub pack_sockaddr($$) {
    AnyEvent::Socket::pack_sockaddr($_[0], $_[1]);
 }
@@ -438,7 +450,7 @@ sub tcp_connect($$$;$) {
          return unless exists $state{fh};
 
          my $target = shift @target
-            or return AE::postpone {
+            or return _postpone sub {
                return unless exists $state{fh};
                %state = ();
                $connect->();
