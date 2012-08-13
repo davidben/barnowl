@@ -29,7 +29,7 @@ int owl_context_get_mode(const owl_context *ctx)
   return ctx->mode;
 }
 
-void owl_context_deactivate(owl_context *ctx)
+void owl_context_deactivated(owl_context *ctx)
 {
   if (ctx->deactivate_cb)
     ctx->deactivate_cb(ctx);

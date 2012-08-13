@@ -169,10 +169,10 @@ CALLER_OWN owl_context *owl_global_pop_context_no_delete(owl_global *g)
   if (!g->context_stack)
     return NULL;
   c = owl_global_get_context(g);
-  owl_context_deactivate(c);
   g->context_stack = g_list_delete_link(g->context_stack,
                                         g->context_stack);
   owl_global_activate_context(g, owl_global_get_context(g));
+  owl_context_deactivated(c);
   return c;
 }
 
