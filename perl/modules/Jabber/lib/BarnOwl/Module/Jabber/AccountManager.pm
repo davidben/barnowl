@@ -43,21 +43,27 @@ sub add_account {
     my $acc = BarnOwl::Module::Jabber::Account->new($jid, $password,
 						    $args);
     $self->{$bj} = $acc;
+    my $self_weak = $self;
+    Scalar::Util::weaken($self_weak);
+    $acc->reg_cb(
+        connect_error => sub { $self_weak->_remove_account($_[0]); },
+        disconnect => sub { $self_weak->_remove_account($_[0]); },
+        );
     return $acc;
 }
 
-sub remove_account {
+sub _remove_account {
     my ($self, $acc) = @_;
     my $bj = prep_bare_jid $acc->jid;
-    if (exists($self->{$bj})) {
-	my $acc = $self->{$bj};
-	# Remove the account first so we can distinguish a requested
-	# disconnect from a spontaneous one.
-	delete $self->{$bj};
-	$acc->disconnect;
-	return 1;
+    if (defined($self->{$bj}) && $self->{$bj} == $acc) {
+        delete $self->{$bj};
     }
-    return 0;
+}
+
+sub logout {
+    my ($self, $acc) = @_;
+    $acc->disconnect("Logged out");
+    $self->_remove_account($acc);
 }
 
 sub connected {

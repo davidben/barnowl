@@ -119,8 +119,8 @@ sub _forward_event {
 }
 
 sub disconnect {
-    my ($self) = @_;
-    $self->{con}->disconnect if defined($self->{con});
+    my ($self, $msg) = @_;
+    $self->{con}->disconnect($msg) if defined($self->{con});
     # This will emit a disconnect event and call _on_disconnect.
 }
 

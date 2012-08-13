@@ -445,8 +445,10 @@ sub do_login {
 sub do_logout {
     my $acc = shift;
     my $jid = $acc->jid;
-    my $disconnected = $accounts->remove_account($acc);
-    queue_admin_msg("Jabber disconnected ($jid).") if $disconnected;
+    if ($acc->is_connected) {
+        $accounts->logout($acc);
+        queue_admin_msg("Jabber disconnected ($jid).");
+    }
 }
 
 sub cmd_logout {
@@ -1007,24 +1009,21 @@ sub on_connected {
 
 sub on_connect_error {
     my ($acc, $host, $port, $message) = @_;
-    # If the account isn't there, then we logged out explicitly.
-    my $other = $accounts->get_account($acc->jid);
-    return unless defined($other) && $other == $acc;
+    $message ||= '';
+    # Bleh.
+    return unless $message ne 'Logged out';
     my $jid = $acc->jid;
     BarnOwl::error("Error in connecting to $jid: $message");
-    $accounts->remove_account($acc);
-}
+ }
 
 sub on_disconnect {
     my ($acc, $host, $port, $message) = @_;
-    # If the account isn't there, then we logged out explicitly.
-    my $other = $accounts->get_account($acc->jid);
-    return unless defined($other) && $other == $acc;
+    $message ||= '';
+    # Bleh.
+    return unless $message ne "Logged out";
     my $jid = $acc->jid;
-    $message //= '';
     BarnOwl::admin_message('Jabber', "Disconnected from $jid: $message");
     # TODO: Reconnect logic.
-    $accounts->remove_account($acc);
 }
 
 sub on_message {
