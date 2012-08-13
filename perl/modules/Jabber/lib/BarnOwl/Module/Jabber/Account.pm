@@ -91,6 +91,7 @@ sub connect {
 	for my $ev (qw(message message_error
                        debug_recv debug_send
                        presence_xml presence_error
+                       sasl_error iq_auth_error
                        contact_request_subscribe contact_subscribed
                        contact_did_unsubscribe contact_unsubscribed
                        roster_update)) {

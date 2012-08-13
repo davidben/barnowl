@@ -386,12 +386,57 @@ sub cmd_login {
 	die("Already logged in as " . bare_jid($jid) . "\n");
     }
 
-    # FIXME: GSSAPI.
     if (defined($password)) {
-	return do_login($jid, $password, $host, $port);
-    }
+        # No more user interaction is needed. Just connect.
+        do_login($jid, $password, $host, $port);
+    } else {
+        # First try without a password for GSSAPI, but go into a modal context
+        # in the (likely) case a password is needed.
+        # FIXME: There're a lot of awkward callbacks happening in unknown orders.
+        my $cancelled = 0;
 
-    BarnOwl::start_password("Password for $jid: ", sub { do_login($jid, $_[0], $host, $port); });
+        my $on_auth_error = sub {
+            my $acc = shift;
+            return if $cancelled;
+            BarnOwl::debug("Jabber: on_auth_error");
+            $cancelled = 1;
+            BarnOwl::message("");
+            $accounts->logout($acc);
+            BarnOwl::cancel_action();
+            # Okay, prompt for the password now and connect.
+            BarnOwl::start_password("Password for $jid: ", sub {
+                do_login($jid, $_[0], $host, $port);
+            });
+        };
+
+        my $acc = do_login($jid, "", $host, $port);
+        $acc->reg_cb(
+            connected => sub {
+                return if $cancelled;
+                $cancelled = 1;
+                BarnOwl::debug("Jabber: connected");
+                # Clear the blocking context message.
+                BarnOwl::message("");
+                BarnOwl::cancel_action();
+            },
+            connect_error => sub {
+                return if $cancelled;
+                BarnOwl::debug("Jabber: connect_error");
+                $cancelled = 1;
+                BarnOwl::cancel_action();
+            },
+            sasl_error => $on_auth_error,
+            iq_auth_error => $on_auth_error,
+            );
+        BarnOwl::start_blocking_context("Connecting to $jid...", sub {
+            return if $cancelled;
+            BarnOwl::debug("Jabber: canceled");
+            $cancelled = 1;
+            BarnOwl::message("Cancelled login");
+            $accounts->logout($acc);
+        });
+    }
+    return;
 }
 
 sub do_login {
@@ -439,7 +484,7 @@ sub do_login {
 
     ensure_auto_away_timer();
 
-    return;
+    return $acc;
 }
 
 sub do_logout {
