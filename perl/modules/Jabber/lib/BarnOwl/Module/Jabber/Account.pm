@@ -109,7 +109,7 @@ sub connect {
 
 sub _forward_event {
     my ($self, $obj, $obj_event, $acc_event) = @_;
-    $acc_event //= $obj_event;
+    $acc_event = $obj_event unless defined($acc_event);
     Scalar::Util::weaken $self;
     $obj->reg_cb(
 	$obj_event => sub {
@@ -195,7 +195,7 @@ sub _send_presence {
 
 sub _set_presence {
     my ($self, $show, $status) = @_;
-    $self->{show} = $show // '';
+    $self->{show} = defined($show) ? $show : '';
     $self->{status} = $status;
     $self->_send_presence();
 }
@@ -203,13 +203,13 @@ sub _set_presence {
 sub set_user_presence {
     my ($self, $show, $status) = @_;
     # Save this for auto-away.
-    $self->{user_show} = $show // '';
+    $self->{user_show} = defined($show) ? $show : '';
     $self->_set_presence($show, $status);
 }
 
 sub auto_away {
     my ($self, $show) = @_;
-    $show //= '';
+    $show = '' unless defined($show);
     # If the user's presence is more away than the auto one, use that.
     if ($show eq '') {
 	$show = $self->{user_show};

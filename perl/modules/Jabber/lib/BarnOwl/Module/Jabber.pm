@@ -53,7 +53,7 @@ no warnings 'redefine';
 ################################################################################
 
 our $accounts;
-$accounts //= BarnOwl::Module::Jabber::AccountManager->new;
+$accounts ||= BarnOwl::Module::Jabber::AccountManager->new;
 our $auto_away_timer;
 our %completion_jids;
 
@@ -164,7 +164,8 @@ sub blist_listBuddy {
     my $showOffline = shift;
     my $blistStr .= "    ";
 
-    my $name = $buddy->name // node_jid($buddy->jid);
+    my $name = $buddy->name;
+    $name = node_jid($buddy->jid) unless defined($name);
 
     $blistStr .= sprintf '%-15s %s', $name, $buddy->jid;
 
@@ -678,7 +679,8 @@ sub jmuc_join {
         unless $muc =~ /@/;
 
     my $room = bare_jid($muc);
-    my $nick = res_jid($muc) // bare_jid($acc->jid);
+    my $nick = res_jid($muc);
+    $nick = bare_jid($acc->jid) unless defined($nick);
 
     # FIXME: This probably doesn't work if we want to change nicks.
     $acc->muc->join_room($acc->connection, $room, $nick,
@@ -1100,7 +1102,7 @@ sub on_presence_xml {
     }
 
     my $type = $node->attr('type');
-    $type //= 'available';
+    $type = 'available' unless defined($type);
     if ($type eq 'available' || $type eq 'unavailable') {
         my $to = $node->attr('to');
         my $from = $node->attr('from');
@@ -1142,8 +1144,10 @@ sub on_presence_xml {
 sub on_presence_error {
     my ($acc, $err) = @_;
 
-    my $code = $err->code // '';
-    my $error = $err->text // '';
+    my $code = $err->code;
+    $code = '' unless defined($code);
+    my $error = $err->text;
+    $error = '' unless defined($error);
     # TODO: may as well pull out all the other fields.
     BarnOwl::error("Jabber: $code $error");
 }
@@ -1378,12 +1382,13 @@ sub message_to_obj {
         my $room_obj = $acc->muc->get_room($acc->connection, $room);
         if (defined($room_obj)) {
             my $user = $room_obj->get_user($nick);
-            if (defined($user)) {
-                $props{from} = $user->real_jid // $props{from};
+            if (defined($user) && defined($user->real_jid)) {
+                $props{from} = $user->real_jid;
             }
         }
 
-        $props{sender} = $nick // $room;
+        $props{sender} = $nick;
+        $props{sender} = $room unless defined($nick);
         $props{recipient} = $room;
 
         if ( defined($props{subject}) && !defined($props{body}) ) {
@@ -1453,17 +1458,17 @@ sub message_error_to_obj {
 
     if (defined($props{from})) {
         $props{body}     = sprintf("Error sending to %s: %s/%s (type %s)\n%s",
-                                   $props{from} // '',
-                                   $props{error_code} // '',
-                                   $props{error_condition} // '',
-                                   $props{error_type} // '',
-                                   $props{error} // '');
+                                   $props{from},
+                                   $props{error_code} || '',
+                                   $props{error_condition} || '',
+                                   $props{error_type} || '',
+                                   $props{error} || '');
     } else {
         $props{body}     = sprintf("Error: %s/%s (type %s)\n%s",
-                                   $props{error_code} // '',
-                                   $props{error_condition} // '',
-                                   $props{error_type} // '',
-                                   $props{error} // '');
+                                   $props{error_code} || '',
+                                   $props{error_condition} || '',
+                                   $props{error_type} || '',
+                                   $props{error} || '');
     }
     return BarnOwl::Message->new(%props);
 }
