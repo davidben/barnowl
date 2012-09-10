@@ -1555,8 +1555,9 @@ sub muc_invite_to_obj {
     # TODO: Include the reason field? The only known server that sends
     # these is GTalk, and that one sends meaningless reasons. "You
     # have been invited to this chat room!".
-    my @yescommand = ("jmuc", "join", $props{room}, "-a", $acc->jid);
+    my @yescommand = ("jmuc", "join", "-a", $acc->jid);
     push @yescommand, ("-p", $password) if defined($password);
+    push @yescommand, ("--", $props{room});
     $props{yescommand} = BarnOwl::quote(@yescommand);
     # $prop{nocommand} = TODO!! Support declining.
     $props{question} = "true";
