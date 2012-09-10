@@ -19,12 +19,12 @@ use base qw( BarnOwl::Message );
 
 sub jtype { shift->{jtype} };
 sub from { shift->{from} };
-sub from_name { shift->{from_name} };
 sub to { shift->{to} };
 sub room { shift->{room} };
 sub nick { shift->{nick} };
 sub subject { shift->{subject} };
 sub status { shift->{status} }
+sub sender_name { shift->{sender_name} };
 
 sub login_type {
     my $self = shift;
@@ -44,13 +44,16 @@ sub login_extra {
 
 sub long_sender {
     my $self = shift;
+    if (defined($self->sender_name) && $self->sender_name ne '') {
+        return $self->sender_name;
+    }
     if ($self->jtype eq 'groupchat' && $self->nick) {
         if (bare_jid($self->from) eq $self->room &&
             res_jid($self->from) eq $self->nick) {
             return $self->nick;
         }
     }
-    return $self->from_name || $self->from;
+    return $self->from;
 }
 
 sub context {
@@ -66,9 +69,9 @@ sub personal_context {
     if($self->subject) {
         return "subject: " . $self->subject;
     } elsif ($self->is_incoming) {
-        return "to " . $self->to;
+        return "to " . $self->recipient;
     } else {
-        return "from " . $self->from;
+        return "from " . $self->sender;
     }
 }
 

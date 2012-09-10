@@ -1349,6 +1349,21 @@ sub is_muc_invite {
     return 1;
 }
 
+sub muc_real_jid {
+    my $acc = shift;
+    my $room = shift;
+    my $nick = shift;
+    # Try to get the full JID of the user.
+    my $room_obj = $acc->muc->get_room($acc->connection, $room);
+    if (defined($room_obj)) {
+        my $user = $room_obj->get_user($nick);
+        if (defined($user) && defined($user->real_jid)) {
+            return $user->real_jid;
+        }
+    }
+    return undef;
+}
+
 sub message_to_obj {
     my $acc = shift;
     my $j   = shift;
@@ -1364,6 +1379,10 @@ sub message_to_obj {
     $props{from} = $from;
     $props{to}   = $to;
 
+    # from and to are always the from/to attributes. sender/recipient
+    # are the logical ones. This is flipped from how email works, but
+    # from/to are the Jabber actual attribute names, and
+    # sender/recipient matches what we use for Zephyr.
     $props{recipient}  = bare_jid($to);
     $props{sender}     = bare_jid($from);
     # TODO: Support picking a language
@@ -1396,22 +1415,17 @@ sub message_to_obj {
         my $nick = $props{nick} = res_jid($from);
         my $room = $props{room} = bare_jid($from);
 
-        # Try to get the full JID of the user.
-        my $room_obj = $acc->muc->get_room($acc->connection, $room);
-        if (defined($room_obj)) {
-            my $user = $room_obj->get_user($nick);
-            if (defined($user) && defined($user->real_jid)) {
-                $props{from} = $user->real_jid;
-            }
-        }
-
-        $props{sender} = $nick;
-        $props{sender} = $room unless defined($nick);
+        $props{sender} = defined($nick) ? $nick : $room;
         $props{recipient} = $room;
+
+        # Try to get the full JID of the user.
+        my $sender = muc_real_jid($acc, $room, $nick);
+        $props{sender} = bare_jid($sender) if defined($sender);
 
         if ( defined($props{subject}) && !defined($props{body}) ) {
             $props{body} =
-              '[' . $nick . " has set the topic to: " . $props{subject} . "]";
+              '[' . $props{sender} . " has set the topic to: "
+              . $props{subject} . "]";
         }
     } elsif ($jtype eq 'error' || $jtype eq 'headline') {
 	# Do nothing; 'error' should be instantiated as
@@ -1423,25 +1437,35 @@ sub message_to_obj {
         $props{private} = 1;
 
         # Check to see if we're doing personals with someone in a muc.
-        # If we are, show the full jid because the base jid is the room.
-        $props{sender} = $props{from}
-          if (defined($acc->muc->get_room($acc->connection, $from)));
-        $props{recipient} = $props{to}
-          if (defined($acc->muc->get_room($acc->connection, $to)));
+        # If we are, show the full jid because the base jid is the
+        # room. (Unless the room is nonymous. Then just use their
+        # jid.)
+        if (defined($acc->muc->get_room($acc->connection, $from))) {
+            my $sender = muc_real_jid($acc, bare_jid($from), res_jid($from));
+            $props{sender} = defined($sender) ? bare_jid($sender) : $from;
+        }
+        if (defined($acc->muc->get_room($acc->connection, $to))) {
+            my $recipient = muc_real_jid($acc, bare_jid($to), res_jid($to));
+            $props{recipient} = defined($recipient) ? bare_jid($recipient) : $to;
+        }
 
         # Populate completion.
         if ($dir eq 'in') {
             $completion_jids{ $props{sender} }= 1;
-        }
-        else {
+        } else {
             $completion_jids{ $props{recipient} } = 1;
         }
     }
 
     # Save the name of the contact that sent the message.
-    my $roster = $acc->get_roster();
-    my $from_contact = $roster->get_contact($props{from}) if defined $roster;
-    $props{from_name} = $from_contact->name if defined $from_contact;
+    # TODO: Implement XEP-0172. GTalk uses this to give you names of
+    # people in the MUC.
+    if (!defined($acc->muc->get_room($acc->connection, $props{sender}))) {
+        my $roster = $acc->get_roster();
+        my $sender_contact =
+            $roster->get_contact($props{sender}) if defined $roster;
+        $props{sender_name} = $sender_contact->name if defined $sender_contact;
+    }
 
     return BarnOwl::Message->new(%props);
 }
