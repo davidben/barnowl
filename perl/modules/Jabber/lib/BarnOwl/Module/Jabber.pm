@@ -1075,7 +1075,10 @@ sub on_disconnect {
 
 sub on_message {
     my ($acc, $msg) = @_;
-    if (defined($msg->any_body()) || BarnOwl::getvar('jabber:spew') eq 'on') {
+    if (is_muc_invite($msg)) {
+        BarnOwl::queue_message(muc_invite_to_obj($acc, $msg,
+                                                 { direction => 'in' }));
+    } elsif (defined($msg->any_body()) || BarnOwl::getvar('jabber:spew') eq 'on') {
         BarnOwl::queue_message(message_to_obj($acc, $msg, { direction => 'in' }));
     }
 }
@@ -1331,6 +1334,21 @@ sub on_debug_send {
 
 ### Helper functions
 
+# Do we want to roll this into the Ext::MUC module? It could intercept
+# invites and wrap them in some fancy object.
+#
+# This supports Mediated Invitations (7.8.2 in XEP-0045 until they
+# change it again) which is what GTalk uses.
+sub is_muc_invite {
+    my $msg = shift;
+    my $node = $msg->xml_node();
+    return 0 unless defined $node;
+    my ($xuser) = $node->find_all([qw/muc_user x/]);
+    return 0 unless defined $xuser;
+    my ($invite) = $node->find_all([qw/muc_user invite/]);
+    return 1;
+}
+
 sub message_to_obj {
     my $acc = shift;
     my $j   = shift;
@@ -1470,6 +1488,55 @@ sub message_error_to_obj {
                                    $props{error_type} || '',
                                    $props{error} || '');
     }
+    return BarnOwl::Message->new(%props);
+}
+
+sub muc_invite_to_obj {
+    my $acc = shift;
+    my $j   = shift;
+    my %props = (type => 'admin',
+                 %{$_[0]});
+
+    my $dir = $props{direction};
+
+    my $node = $j->xml_node();
+    my ($xuser) = $node->find_all([qw/muc_user x/]);
+    my ($invite) = $xuser->find_all([qw/muc_user invite/]);
+    my ($password) = $xuser->find_all([qw/muc_user password/]);
+    my ($reason) = $invite->find_all([qw/muc_user reason/]);
+
+    # Add various fields, although it's unlikely most will be set.
+    $props{room} = $j->from();
+    $props{to}   = $j->to();
+    $props{from} = $invite->attr("from");
+    $props{jtype} = $j->type();
+    $props{subject}    = $j->any_subject() if defined($j->any_subject());
+    $props{thread}     = $j->thread() if defined($j->thread());
+    $props{reason} = defined ($reason) ? $reason->text() : "";
+
+    $props{recipient}  = bare_jid($props{to});
+    # The room may put a bare JID, full JID, or occupant JID in the
+    # from field. In the last case, we want to use the nick
+    # (resource), not the bare JID.
+    if (bare_jid($props{from}) eq $props{room}) {
+        $props{sender} = res_jid($props{from});
+    } else {
+        $props{sender} = bare_jid($props{from});
+    }
+
+    $props{body} = sprintf(
+        "%s has invited you to chatroom:\n  %s\n" .
+        "(Accept with the `yes' command)",
+        $props{sender}, $props{room});
+    # TODO: Include the reason field? The only known server that sends
+    # these is GTalk, and that one sends meaningless reasons. "You
+    # have been invited to this chat room!".
+    my @yescommand = ("jmuc", "join", $props{room}, "-a", $acc->jid);
+    push @yescommand, ("-p", $password) if defined($password);
+    $props{yescommand} = BarnOwl::quote(@yescommand);
+    # $prop{nocommand} = TODO!! Support declining.
+    $props{question} = "true";
+
     return BarnOwl::Message->new(%props);
 }
 
