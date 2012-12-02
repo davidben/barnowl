@@ -2361,28 +2361,34 @@ char *owl_command_delete(int argc, const char *const *argv, const char *buff)
 
 char *owl_command_delete_and_expunge(int argc, const char *const *argv, const char *buff)
 {
-  bool exclaim_success = true;
+  GError *err = NULL;
+  bool quiet = false;
 
   if (argc > 1 && (!strcmp(argv[1], "-q") || !strcmp(argv[1], "--quiet"))) {
-    exclaim_success = false;
+    quiet = true;
     argc--;
     argv++;
   } else if (!strcmp(argv[argc - 1], "-q") || !strcmp(argv[argc - 1], "--quiet")) {
-    exclaim_success = false;
+    quiet = true;
     argc--;
   }
 
   if (argc == 1) {
-    owl_function_delete_and_expunge_cur(exclaim_success);
+    owl_function_delete_and_expunge_cur(&err);
+  } else if (argc == 3 && (!strcmp(argv[1], "-id") || !strcmp(argv[1], "--id"))) {
+    owl_function_delete_and_expunge_by_id(atoi(argv[2]), &err);
+  } else {
+    owl_function_makemsg("Unknown arguments to delete-and-expunge command");
     return NULL;
   }
 
-  if (argc == 3 && (!strcmp(argv[1], "-id") || !strcmp(argv[1], "--id"))) {
-    owl_function_delete_and_expunge_by_id(atoi(argv[2]), exclaim_success);
-    return NULL;
+  if (err == NULL) {
+    if (!quiet)
+      owl_function_makemsg("Message deleted and expunged");
+  } else {
+    owl_function_error(err->message);
+    g_error_free(err);
   }
-
-  owl_function_makemsg("Unknown arguments to delete-and-expunge command");
   return NULL;
 }
 

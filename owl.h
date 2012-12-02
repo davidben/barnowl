@@ -542,6 +542,13 @@ typedef struct _owl_popexec {
   guint io_watch;
 } owl_popexec;
 
+/* A lot of errors are uninteresting and don't need to be caught. Make a
+ * standard "unknown error" value. */
+#define OWL_ERROR (owl_error_quark())
+enum OwlError {
+  OWL_ERROR_UNKNOWN,
+};
+
 typedef struct _owl_global {
   owl_mainwin *mw;
   owl_popwin *pw;

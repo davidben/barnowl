@@ -2,6 +2,11 @@
 #include <stdio.h>
 #include <sys/ioctl.h>
 
+GQuark owl_error_quark(void)
+{
+  return g_quark_from_static_string("owl-error-quark");
+}
+
 static void _owl_global_init_windows(owl_global *g);
 
 void owl_global_init(owl_global *g) {
