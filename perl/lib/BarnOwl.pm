@@ -469,6 +469,28 @@ sub new_variable_string {
         });
 }
 
+sub new_variable_enum {
+    my ($name, $args) = @_;
+
+    # Gather the valid settings.
+    die "validsettings is required" unless defined($args->{validsettings});
+    my @validsettings = split(',', $args->{validsettings});
+    my %valid;
+    map { $valid{$_} = 1} @validsettings;
+
+    my $storage = defined($args->{default}) ? $args->{default} : $validsettings[0];
+    BarnOwl::new_variable_full($name, {
+            get_tostring => sub { $storage },
+            set_fromstring => sub {
+                return -1 unless $valid{$_[0]};
+                $storage = $_[0];
+                return 0;
+            },
+            # validsettings => "comes from the caller"
+            %{$args}
+        });
+}
+
 =head2 new_variable_full NAME {ARGS}
 
 Create a variable, in full generality. The keyword arguments have types below:
