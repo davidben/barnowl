@@ -2,6 +2,11 @@
 #include <stdio.h>
 #include "gmarshal_funcs.h"
 
+/* TODO(davidben): When we can require 2.30 and up, remove this. */
+#ifndef G_VALUE_INIT
+#define G_VALUE_INIT { 0, { { 0 } } }
+#endif
+
 typedef const char *(*get_string_t)(const owl_variable *);
 typedef int (*get_int_t)(const owl_variable *);
 typedef bool (*get_bool_t)(const owl_variable *);
